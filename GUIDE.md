@@ -147,7 +147,10 @@ Or in the console: **Observe → Traces**, pick TempoStack `agents`, tenant `age
 
 `demo-trace.sh` makes a "user → agent → agent" trace for any agents, without touching their code. For
 each agent, in order, it runs a short-lived pod **as that agent's service account**, so each step
-carries the agent's real SPIFFE ID. The work in each step is a stand-in.
+carries the agent's real SPIFFE ID. The work is a stand-in: each agent's span shows a few steps (think,
+tool lookup, call the next agent, write answer) on a staged timeline of a few seconds per agent, so the
+console's timeline view reads like a real request. Those steps carry `demo.simulated=true`; `DEMO_PACE=2`
+in `demo.env` doubles the timing.
 
 ```bash
 cp demo.env.example demo.env && vi demo.env       # DEMO_USER and DEMO_AGENTS (namespace/serviceaccount=Name)
