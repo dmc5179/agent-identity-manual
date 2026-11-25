@@ -1,0 +1,83 @@
+# Step 2: SPIRE operands. Apply after 01 shows Ready:
+#   oc get zerotrustworkloadidentitymanagers.operator.openshift.io cluster -o yaml
+# Then wait: oc get pods -n zero-trust-workload-identity-manager (server, agent per node, CSI, OIDC)
+# Docs: OCP 4.22 Security and compliance, ch. 12 (Deploying ZTWIM operands)
+# Field values below are what ran on our lab (ZTWIM 1.1.3); caSubject, datastore, jwtIssuer and
+# persistence are required by the CRD.
+# CPU: KB 7146516 / OCPBUGS-90556 report spire-server near 2 cores idle. Our lab measured 7m CPU,
+# 327Mi (2026-11-24, 8 nodes). Watch it: oc adm top pod -n zero-trust-workload-identity-manager
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireServer
+metadata:
+  name: cluster
+spec:
+  jwtIssuer: ${SPIRE_JWT_ISSUER}   # MUST equal the OIDC discovery provider's; host becomes its Route
+  caSubject:
+    commonName: ${CLUSTER_NAME}-spire
+    country: US
+    organization: Example
+  caKeyType: rsa-2048
+  caValidity: 24h
+  defaultX509Validity: 1h          # mTLS certificate lifetime for agents
+  defaultJWTValidity: 5m           # JWT-SVID lifetime; keep short, agents re-fetch from the socket
+  datastore:                       # sqlite on a PV; use postgres for HA (CloudNativePG not FIPS-validated)
+    databaseType: sqlite3
+    connectionString: /run/spire/data/datastore.sqlite3
+    maxOpenConns: 100
+    maxIdleConns: 2
+    connMaxLifetime: 0
+    disableMigration: "false"
+  persistence:
+    size: 5Gi
+    accessMode: ReadWriteOnce
+    storageClass: ""               # "" = cluster default
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}   # requests only: a CPU limit on the CA just throttles it
+  # tolerations: [{key: node-role.kubernetes.io/infra, operator: Exists}]   # if you run infra nodes
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireAgent
+metadata:
+  name: cluster
+spec:
+  socketPath: /run/spire/agent-sockets   # must match SpiffeCSIDriver.agentSocketPath
+  nodeAttestor:
+    k8sPSATEnabled: "true"               # strings, not booleans, in this CRD
+  workloadAttestors:
+    k8sEnabled: "true"
+    disableContainerSelectors: "false"
+    useNewContainerLocator: "true"
+    workloadAttestorsVerification:
+      type: auto
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+  tolerations:
+  - operator: Exists                     # run on EVERY node, or pods there silently get no SVID
+---
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpiffeCSIDriver
+metadata:
+  name: cluster
+spec:
+  agentSocketPath: /run/spire/agent-sockets
+  pluginName: csi.spiffe.io              # pods mount the Workload API with driver csi.spiffe.io
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+  tolerations:
+  - operator: Exists
+---
+# Publishes the JWKS for agent JWT-SVIDs at ${SPIRE_JWT_ISSUER}/.well-known/openid-configuration,
+# so Authorino (RHCL), OGX or Vault can verify agent tokens. Also creates a default ClusterSPIFFEID
+# (fallback, every namespace) using spiffe://<td>/ns/<ns>/sa/<sa>.
+apiVersion: operator.openshift.io/v1alpha1
+kind: SpireOIDCDiscoveryProvider
+metadata:
+  name: cluster
+spec:
+  jwtIssuer: ${SPIRE_JWT_ISSUER}         # same value as SpireServer
+  csiDriverName: csi.spiffe.io
+  managedRoute: "true"                   # string enum; unquoted true is rejected. "false" blocks operator upgrades (SPIRE-786)
+  replicaCount: 1
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}

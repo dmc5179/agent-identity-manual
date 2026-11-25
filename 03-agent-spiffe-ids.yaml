@@ -1,0 +1,22 @@
+# Step 3: SPIFFE IDs for agents. Optional: 02 already creates a fallback ClusterSPIFFEID for all
+# namespaces. This one gives labelled agent pods an explicit entry and a JWT TTL.
+# The ID format matches the pod's Kubernetes identity (ns + service account), which is also what
+# MaaS authorizes (system:serviceaccounts:<ns>), so one name covers both.
+# Docs: OCP 4.22 Security and compliance, ch. 12: https://access.redhat.com/documentation/en-us/openshift_container_platform/4.22/html-single/security_and_compliance/index
+# Verified on our lab 2026-11-24: an agent pod got spiffe://<td>/ns/<ns>/sa/<sa> as X.509 and a 5m
+#   JWT-SVID whose iss matched the SPIRE discovery endpoint.
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: agents
+spec:
+  className: zero-trust-workload-identity-manager-spire   # REQUIRED, or ZTWIM silently ignores it (RHOAIENG-100596)
+  hint: agents
+  spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: ${AGENT_NAMESPACE}
+  podSelector:
+    matchLabels:
+      agent-identity: "true"   # label your agent pods
+  jwtTtl: 5m

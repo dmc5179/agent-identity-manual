@@ -1,0 +1,18 @@
+# Step 1: ZTWIM singleton. Apply FIRST; every SPIRE resource in 02 reads trustDomain and
+# clusterName from it, and 1.1 has no trustDomain field on SpireServer itself.
+# Docs: OCP 4.22 Security and compliance, ch. 12 (Zero Trust Workload Identity Manager)
+#   https://access.redhat.com/documentation/en-us/openshift_container_platform/4.22/html-single/security_and_compliance/index
+# Caveats:
+#   - Not supported on FIPS clusters (KB 7144070, RFE-9293).
+#   - trustDomain is effectively immutable: pick it once. To change it, delete and recreate everything.
+#   - Operator must be installed in zero-trust-workload-identity-manager, never openshift-* (OCPBUGS-129473).
+#   - Node names must resolve from pod DNS, or agent attestation fails (OCPBUGS-114875).
+#   - Tested shape: ZTWIM 1.1.3 on OCP 4.22.18 (our lab, 2026-11-10 to 11-24).
+apiVersion: operator.openshift.io/v1alpha1
+kind: ZeroTrustWorkloadIdentityManager
+metadata:
+  name: cluster                  # must be "cluster"
+spec:
+  trustDomain: ${TRUST_DOMAIN}   # SPIFFE IDs become spiffe://<trustDomain>/ns/<ns>/sa/<sa>
+  clusterName: ${CLUSTER_NAME}   # used by the node attestor in agent IDs
+  bundleConfigMap: spire-bundle  # ConfigMap the trust bundle is published to
