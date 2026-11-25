@@ -1,0 +1,54 @@
+# Example second agent B for a two-hop trace test, an HTTP endpoint that continues the trace
+# from agent A, reads user.id from W3C baggage, and tags its span with its own SPIFFE ID.
+# Edit the namespace (agent-id-test) and the Instrumentation reference (tracing/agents) to match vars.env.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: agent-b, namespace: agent-id-test}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: agent-b, namespace: agent-id-test}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: agent-b}}
+  template:
+    metadata:
+      labels: {app: agent-b, agent-identity: "true"}
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: tracing/agents
+    spec:
+      serviceAccountName: agent-b
+      containers:
+      - name: agent
+        image: registry.access.redhat.com/ubi9/python-312
+        env:
+        - {name: SPIFFE_ENDPOINT_SOCKET, value: unix:///spiffe-workload-api/spire-agent.sock}
+        - {name: OTEL_SERVICE_NAME, value: agent-b}
+        - {name: HOME, value: /tmp}
+        - name: SERVER
+          value: |
+            from http.server import BaseHTTPRequestHandler, HTTPServer
+            from opentelemetry import trace, baggage, propagate
+            from spiffe import WorkloadApiClient
+            sid = str(WorkloadApiClient().fetch_x509_svid().spiffe_id)
+            tr = trace.get_tracer("agent-b")
+            class H(BaseHTTPRequestHandler):
+                def do_GET(self):
+                    ctx = propagate.extract({k.lower(): v for k, v in self.headers.items()})
+                    with tr.start_as_current_span("agent-b.handle", context=ctx) as sp:
+                        sp.set_attribute("spiffe.id", sid)
+                        sp.set_attribute("user.id", baggage.get_baggage("user.id", ctx) or "missing")
+                    self.send_response(200); self.end_headers(); self.wfile.write(b"ok")
+            HTTPServer(("", 8080), H).serve_forever()
+        command: ["sh", "-c", "pip install -q --target /tmp/pylib spiffe && PYTHONPATH=$PYTHONPATH:/tmp/pylib exec python3 -c \"$SERVER\""]
+        ports: [{containerPort: 8080}]
+        volumeMounts: [{name: spiffe-workload-api, mountPath: /spiffe-workload-api, readOnly: true}]
+      volumes:
+      - {name: spiffe-workload-api, csi: {driver: csi.spiffe.io, readOnly: true}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: agent-b, namespace: agent-id-test}
+spec:
+  selector: {app: agent-b}
+  ports: [{port: 8080, targetPort: 8080}]

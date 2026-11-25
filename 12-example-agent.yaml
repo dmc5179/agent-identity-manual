@@ -1,0 +1,66 @@
+# Step 12: an example agent wired into everything: a SPIFFE identity (CSI socket), OpenTelemetry
+# auto-instrumentation (Instrumentation from 08), and a MaaS-capable service account (06).
+# Replace the image with your agent. Docs: SPIFFE CSI driver and Workload API (OCP 4.22 Security
+#   and compliance, ch. 12); OpenTelemetry Instrumentation (Red Hat build of OpenTelemetry).
+# Verified on our lab 2026-11-24: SVIDs fetched with py-spiffe; with the annotation, a trace showed
+#   user -> agent-a -> agent-b, each span with its own spiffe.id and user.id (second agent: examples/agent-b-trace-test.yaml).
+# When reading headers yourself (plain http.server), lowercase the names before propagate.extract:
+#   urllib sends Traceparent/Baggage, and the dict getter is case-sensitive.
+# SPIFFE IDs come from namespace + service account, so anyone who can create pods or service accounts
+#   in ${AGENT_NAMESPACE} can act as its agents. Keep that RBAC tight.
+# In the agent code, to tie a user to the call chain:
+#   - fetch a JWT-SVID from $SPIFFE_ENDPOINT_SOCKET (py-spiffe / go-spiffe) for outbound calls
+#   - add span attributes: user.id (Keycloak preferred_username) and spiffe.id (own SVID)
+#   - put user.id in W3C baggage so downstream agents and OGX spans carry it
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${AGENT_NAMESPACE}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-a                    # SPIFFE ID: spiffe://${TRUST_DOMAIN}/ns/${AGENT_NAMESPACE}/sa/agent-a
+  namespace: ${AGENT_NAMESPACE}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-a
+  namespace: ${AGENT_NAMESPACE}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: agent-a}
+  template:
+    metadata:
+      labels:
+        app: agent-a
+        agent-identity: "true"     # selected by the ClusterSPIFFEID in 03
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: ${TRACING_NAMESPACE}/agents   # from 08
+    spec:
+      serviceAccountName: agent-a
+      containers:
+      - name: agent
+        image: registry.access.redhat.com/ubi9/python-312   # replace with your agent image
+        command: ["sleep", "infinity"]
+        env:
+        - name: SPIFFE_ENDPOINT_SOCKET
+          value: unix:///spiffe-workload-api/spire-agent.sock
+        - name: OTEL_SERVICE_NAME
+          value: agent-a
+        - name: OTEL_PROPAGATORS
+          value: tracecontext,baggage
+        volumeMounts:
+        - name: spiffe-workload-api
+          mountPath: /spiffe-workload-api
+          readOnly: true
+      volumes:
+      - name: spiffe-workload-api
+        csi:
+          driver: csi.spiffe.io     # from 02 (SpiffeCSIDriver.pluginName)
+          readOnly: true
+# Check the identity from inside the pod (spire-agent CLI is not in app images; use your SDK), or:
+#   oc get clusterspiffeids.spire.spiffe.io agents -o jsonpath='{.status.stats}'

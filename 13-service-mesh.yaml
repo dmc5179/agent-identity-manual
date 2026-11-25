@@ -1,0 +1,83 @@
+# Step 13 (OPTIONAL, read all of this first): OpenShift Service Mesh 3 for agent-to-agent mTLS.
+# Skip it unless you need mesh mTLS/policy: agents already have SPIFFE identities from 02/03.
+# Docs: OSSM 3.5 Installing (2.3 sidecar, 2.4 discovery selectors, 7 SPIRE, 9 multiple meshes)
+#   https://docs.redhat.com/en/documentation/red_hat_openshift_service_mesh/3.5/html-single/installing/index
+#   KB 7147696: an OperatorHub OSSM 3 and OCP's Gateway API istiod can coexist on 4.22.
+# Risks on OCP 4.22 (Gateway API, used by RHOAI and MaaS, runs its own istiod in openshift-ingress):
+#   - Don't let OLM upgrade OSSM on its own: installPlanApproval Manual, and check the GatewayClass
+#     still shows CRDsReady after any OSSM change (RHOAIENG-76376). Watch the OrphanedOSSMSubscription alert.
+#   - Never name this Istio "openshift-gateway" or put it in openshift-ingress.
+#   - ALWAYS set discoverySelectors so this control plane only sees your agent namespaces.
+#   - OSSM 3.5.0 breaks TLS cipher enforcement under the Modern TLS profile (OCPBUGS-138960).
+# SPIRE as the mesh CA (GA in OSSM 3.5, sidecar mode only), if you want mesh certs from ZTWIM:
+#   - BEFORE step 2, set CREATE_ONLY_MODE=true on the ZTWIM Subscription (Installing 7.3.1):
+#       oc patch subscription.operators.coreos.com <ztwim-sub> -n zero-trust-workload-identity-manager \
+#         --type merge -p '{"spec":{"config":{"env":[{"name":"CREATE_ONLY_MODE","value":"true"}]}}}'
+#   - Registrations (03) must exist before pods start, or pods wait forever.
+#   - meshConfig.trustDomain must equal ${TRUST_DOMAIN}. Not supported on FIPS (KB 7144070).
+#   - KB 7139168 still says "under review"; it predates OSSM 3.4/3.5.
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-agents
+  labels:
+    istio-discovery: agents-mesh
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-cni
+---
+apiVersion: sailoperator.io/v1
+kind: IstioCNI
+metadata:
+  name: default                     # must be "default"; shared by all control planes
+spec:
+  namespace: istio-cni
+  # values: {global: {nativeNftables: true}}   # only with RHEL/RHCOS 10 nodes
+---
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata:
+  name: agents-mesh                 # also the revision: label workload namespaces istio.io/rev=agents-mesh
+spec:
+  namespace: istio-agents
+  updateStrategy:
+    type: InPlace
+  values:
+    meshConfig:
+      trustDomain: ${TRUST_DOMAIN}
+      discoverySelectors:
+      - matchLabels:
+          istio-discovery: agents-mesh
+      enableTracing: true
+      extensionProviders:           # mesh spans to the collector from 08
+      - name: otel
+        opentelemetry:
+          port: 4317
+          service: otel-collector.${TRACING_NAMESPACE}.svc.cluster.local
+    # --- SPIRE as CA (uncomment with the CREATE_ONLY_MODE step above) ---
+    # pilot:
+    #   jwksResolverExtraRootCA: |
+    #     <tls.crt of Secret oidc-serving-cert in zero-trust-workload-identity-manager>
+    #   env:
+    #     PILOT_JWT_ENABLE_REMOTE_JWKS: "true"
+    # meshConfig.defaultConfig.proxyMetadata.WORKLOAD_IDENTITY_SOCKET_FILE: "spire-agent.sock"
+    # sidecarInjectorWebhook.templates.spire / spireGateway: CSI csi.spiffe.io at
+    #   /run/secrets/workload-spiffe-uds (full block: OSSM 3.5 Installing 7.3.2)
+    # pods then opt in with annotation inject.istio.io/templates: "sidecar,spire"
+---
+apiVersion: telemetry.istio.io/v1
+kind: Telemetry
+metadata:
+  name: mesh-tracing
+  namespace: istio-agents
+spec:
+  tracing:
+  - providers:
+    - name: otel
+    randomSamplingPercentage: 100
+# Put the agent namespace in the mesh, then restart its pods:
+#   oc label namespace ${AGENT_NAMESPACE} istio-discovery=agents-mesh istio.io/rev=agents-mesh
+# With the mesh, the OTel Instrumentation (08) needs the b3multi propagator.
