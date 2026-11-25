@@ -1,0 +1,7 @@
+# Local values and secrets never go in git
+vars.env
+*.key
+*.crt
+*-backup.yaml
+# Local research notes, lab inventory and teardown (not published)
+research/
