@@ -69,9 +69,10 @@ oc create secret generic keycloak-gateway-client -n openshift-ingress --from-lit
 `oc login ... --exec-plugin oc-oidc` command for users. It leaves out two flags users may need:
 `--oidc-certificate-authority <file>` when Keycloak's certificate is from a private CA (otherwise the
 plugin fails with `x509: certificate signed by unknown authority`, even if you accept the API server's
-certificate as insecure), and `--callback-port 8080` when the Keycloak client only allows
-`http://localhost:8080` as a redirect. A self-signed API server certificate also needs
-`--certificate-authority <api-ca>`. Seen on OpenShift 4.22.18. Either share the full command with
+certificate as insecure), and `--callback-port <port>`, where the port must be one of the Keycloak CLI client's
+redirect URIs (`http://localhost:<port>`); any other port fails at Keycloak with "invalid parameter:
+redirect_url". Register a second port for users whose 8080 is already taken. A self-signed API server certificate also needs
+`--certificate-authority <api-ca>`. Seen on OpenShift 4.22.18 (OCPBUGS-147680). Either share the full command with
 users, or add the CAs to their system trust store.
 
 If the dashboard login loops or uses an old secret: `oc delete secret kube-auth-proxy-creds -n
@@ -174,7 +175,8 @@ with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that 
 | ClusterSPIFFEID selects 0 pods | Missing `className: zero-trust-workload-identity-manager-spire`, or the pod lacks `agent-identity: "true"` |
 | SPIRE resource rejected: "must be of type string" | `managedRoute`, `k8sPSATEnabled` etc. are strings: quote `"true"` |
 | `oc` login works, console shows no Copy login command | Needs the `cli` client in 04; known issue OCPBUGS-54761 (not seen on self-managed 4.22.18) |
-| Copied login command fails: `x509: certificate signed by unknown authority` from `oidc discovery` | Add `--oidc-certificate-authority <keycloak-ca>` (and `--callback-port 8080`); the console omits them |
+| Copied login command fails: `x509: certificate signed by unknown authority` from `oidc discovery` | Add `--oidc-certificate-authority <keycloak-ca>` (and `--callback-port 8080`); the console omits them (OCPBUGS-147680) |
+| Keycloak says "invalid parameter: redirect_url" after `oc login` | The `--callback-port` isn't a redirect URI on the CLI client: add `http://localhost:<port>` and `http://localhost:<port>/*` |
 | A second DevWorkspace Operator shows Failed (`InterOperatorGroupOwnerConflict`) | Web Terminal and Dev Spaces were installed in different namespaces. Both depend on the DevWorkspace Operator, so all three must share one namespace (Dev Spaces install guide; KB 6994906). Reinstall Web Terminal in Dev Spaces' namespace (Subscription name must stay `web-terminal`) |
 | Web Terminal stops working after 5 minutes | Its token isn't refreshed under external OIDC; reopen it (no fix yet) |
 | MaaS key creation returns 500 | Authorino serving cert (RHOAIENG-103136): annotate its Service after Kuadrant reconciles, restart Authorino |
