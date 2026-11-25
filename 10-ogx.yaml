@@ -1,0 +1,61 @@
+# Step 10: OGX server that only accepts Keycloak tokens (the user, or an agent acting for one),
+# and sends traces to the collector from 08.
+# Docs: RHOAI 3.5 Build AI/Agentic Applications with OGX: 3.3 (authentication providers),
+#   11.2 (Keycloak via AUTH_* env), 13 (ABAC; default access policy)
+#   https://access.redhat.com/documentation/en-us/red_hat_openshift_ai_self-managed/3.5/html-single/working_with_ogx/index
+# Notes:
+#   - OGX checks ONE issuer. Keycloak here, so callers pass a user token (or a token-exchanged
+#     "agent acting for user" token). To accept agent JWT-SVIDs instead, set AUTH_ISSUER and
+#     AUTH_JWKS_URI to the SPIRE issuer, or front OGX with Authorino (see 11) using upstream_header.
+#   - The docs show env under spec.env and spec.server.containerSpec; the 3.5.2 CRD (ogx.io/v1beta1)
+#     takes it under spec.workload.overrides.env, as below.
+#   - With auth on, the OGX operator's own /v1/providers calls get 401 (RHAI-54107); check operator logs.
+#   - Don't press the Playground "Configure" button on this server: it replaces OGXServers it did
+#     not create (RHOAIENG-95473).
+#   - If you enable spec.network.externalAccess, also set hostname and a TLS Secret (RHAI-57207).
+#   - OTEL_* env: our lab (2026-11-24) showed the OGX 3.5 image starts exporting from these env vars
+#     alone. A trace span from a real request is still unverified.
+#   - The default "rh" distribution REQUIRES PostgreSQL for its metadata store; without it the pod
+#     crash-loops (StackConfig: storage.backends.*_postgres.db/user missing). Add the PostgreSQL env
+#     from OGX doc 10.3 ("Using PostgreSQL in OGX"), or reuse the Playground's database settings.
+apiVersion: ogx.io/v1beta1
+kind: OGXServer
+metadata:
+  name: ogx
+  namespace: ${OGX_NAMESPACE}
+spec:
+  distribution:
+    name: rh                 # "rh-dev" is deprecated in 3.5.2
+  network:
+    port: 8321
+  workload:
+    replicas: 1
+    overrides:
+      env:
+      - name: AUTH_ISSUER                 # setting this turns on oauth2_token validation
+        value: ${KEYCLOAK_ISSUER}
+      - name: AUTH_JWKS_URI
+        value: ${KEYCLOAK_ISSUER}/protocol/openid-connect/certs
+      - name: AUTH_AUDIENCE               # tokens need this in "aud" (Keycloak audience mapper)
+        value: ${KEYCLOAK_OGX_AUDIENCE}
+      - name: AUTH_VERIFY_TLS
+        value: "true"
+      - name: OTEL_EXPORTER_OTLP_ENDPOINT
+        value: http://otel-collector.${TRACING_NAMESPACE}.svc:4318
+      - name: OTEL_EXPORTER_OTLP_PROTOCOL
+        value: http/protobuf
+      - name: OTEL_SERVICE_NAME
+        value: ogx
+      - name: OTEL_METRICS_EXPORTER       # the collector in 08 takes traces only
+        value: none
+      - name: OTEL_LOGS_EXPORTER
+        value: none
+      # PostgreSQL metadata store (required, see notes): env names per OGX doc 10.3
+      # Point to your model; for MaaS use its URL and an API key Secret:
+      # - name: VLLM_URL
+      #   value: https://maas.${APPS_DOMAIN}/llm/<model>/v1
+      # - name: VLLM_API_TOKEN
+      #   valueFrom: {secretKeyRef: {name: maas-api-key, key: key}}
+  # tls:
+  #   trust:
+  #     caCertificates: [{name: keycloak-ca, key: ca.crt}]   # if Keycloak uses a private CA

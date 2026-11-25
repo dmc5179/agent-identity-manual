@@ -1,0 +1,48 @@
+# Step 11 (optional): enforce "a known agent OR a signed-in user" at the gateway, using
+# Connectivity Link (Authorino). Accepts Keycloak tokens (people) and SPIRE JWT-SVIDs (agents),
+# and passes the identity to the backend as headers. Example target: an HTTPRoute in front of
+# an agent or OGX (OGX then uses its upstream_header auth provider).
+# Docs: RHCL 1.5 AuthPolicy (kuadrant.io/v1); SPIRE OIDC discovery in OCP 4.22 Security and
+#   compliance, ch. 12.
+# UNTESTED as a whole: Authorino JWT auth against Keycloak is tested on our lab; against the SPIRE
+#   issuer it is not. Agents fetch a JWT-SVID with audience "agents-gateway" from the socket.
+# Notes:
+#   - Authorino must trust both issuers' TLS. Private CA -> bare 401 (CONNLINK-2027).
+#   - Any cache TTL must be below the 5m token lifetime.
+#   - If OGX trusts these headers, OGX must be reachable ONLY through this gateway (OGX docs 3.3.2).
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: agent-or-user
+  namespace: ${AGENT_NAMESPACE}
+spec:
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: <route-to-protect>
+  rules:
+    authentication:
+      keycloak-user:                  # people, and agents holding a token exchanged for a user
+        jwt:
+          issuerUrl: ${KEYCLOAK_ISSUER}
+        priority: 0
+      spiffe-agent:                   # agent workload identity
+        jwt:
+          issuerUrl: ${SPIRE_JWT_ISSUER}
+        priority: 1
+    authorization:
+      agents-from-agent-namespace:    # SPIFFE callers must come from the agent namespace
+        when:
+        - predicate: auth.identity.iss == "${SPIRE_JWT_ISSUER}"
+        patternMatching:
+          patterns:
+          - predicate: auth.identity.sub.startsWith("spiffe://${TRUST_DOMAIN}/ns/${AGENT_NAMESPACE}/")
+    response:
+      success:
+        headers:
+          x-user-id:                  # Keycloak user, or the SPIFFE ID for an agent
+            plain:
+              expression: 'has(auth.identity.preferred_username) ? auth.identity.preferred_username : auth.identity.sub'
+          x-caller-iss:
+            plain:
+              expression: auth.identity.iss

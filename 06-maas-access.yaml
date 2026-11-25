@@ -1,0 +1,46 @@
+# Step 6: MaaS access for people (Keycloak groups) and agents (service accounts).
+# With OpenShift on Keycloak (04), MaaS already accepts Keycloak users through the API server, so
+# AITenant spec.oidc is NOT needed and is left off on purpose:
+#   - spec.oidc accepts one Keycloak client only, checked against "azp" (RHOAIENG-103680, RHAIRFE-3915)
+#   - a private-CA Keycloak gives a bare 401; no CA field (RHOAIENG-103684, CONNLINK-2027)
+# The dashboard cannot create MaaS keys for external-OIDC users (RHAIRFE-3346): use the API.
+# Key minting returns 500 if Authorino has no serving cert (RHOAIENG-103136, CONNLINK-1976): annotate
+#   the authorino-authorino-authorization Service AFTER Kuadrant reconciles, then restart Authorino.
+# Agents get keys with their service account token; people with their Keycloak/oc token:
+#   curl -X POST https://maas.${APPS_DOMAIN}/maas-api/v1/api-keys -H "Authorization: Bearer $(oc whoami -t)" \
+#     -H 'Content-Type: application/json' -d '{"name":"my-key","subscription":"<model>-default"}'
+# Docs: RHOAI 3.5 Govern LLM access with Models-as-a-Service
+#   https://access.redhat.com/documentation/en-us/red_hat_openshift_ai_self-managed/3.5/html-single/govern_llm_access_with_models-as-a-service/index
+# Shapes below match RHOAI 3.5.2 (our lab). Replace <model>/<model-ns> with your LLMInferenceService.
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSAuthPolicy
+metadata:
+  name: <model>-access
+  namespace: models-as-a-service
+spec:
+  modelRefs:
+  - name: <model>
+    namespace: <model-ns>
+  subjects:
+    groups:
+    - name: maas-users                                    # Keycloak group (groups claim, no path)
+    - name: system:serviceaccounts:${AGENT_NAMESPACE}     # every service account in the agent namespace
+---
+apiVersion: maas.opendatahub.io/v1alpha1
+kind: MaaSSubscription
+metadata:
+  name: <model>-default
+  namespace: models-as-a-service
+spec:
+  modelRefs:
+  - name: <model>
+    namespace: <model-ns>
+    tokenRateLimits:
+    - limit: 300000
+      window: 1m
+  owner:
+    groups:
+    - name: maas-users
+    - name: system:serviceaccounts:${AGENT_NAMESPACE}
+  priority: 10
