@@ -77,6 +77,19 @@ users, or add the CAs to their system trust store.
 If the dashboard login loops or uses an old secret: `oc delete secret kube-auth-proxy-creds -n
 openshift-ingress`, wait for it to return, `oc rollout restart deploy/kube-auth-proxy -n openshift-ingress`.
 
+### Dev Spaces (if installed)
+
+Dev Spaces signs in through the OpenShift OAuth server by default, so after step 3 its login fails until
+it uses Keycloak (Dev Spaces install guide, "Use an external identity provider for authentication"):
+a confidential Keycloak client `devspaces` (redirect `<cheURL>/oauth/callback`, web origin `<cheURL>`),
+`devspaces` added to the audiences in 04 (another ~20 min API rollout), a Secret `oauth-secret` (key
+`oAuthSecret`) and, for a private CA, a `keycloak-certs` ConfigMap labelled
+`app.kubernetes.io/component=ca-bundle` in `openshift-devspaces`, then on the CheCluster:
+`spec.networking.auth.oAuthClientName: devspaces`, `oAuthSecret: oauth-secret`,
+`identityProviderURL: <issuer>`, `gateway.oAuthProxy.cookieExpireSeconds: 300`, and the oauth-proxy
+env `OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256`. Dev Spaces, the DevWorkspace Operator and Web Terminal
+must be installed in one namespace.
+
 ## 4. Models, OGX, agents (~30 min)
 
 ```bash

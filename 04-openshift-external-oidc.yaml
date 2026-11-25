@@ -44,6 +44,7 @@ spec:
       - ${KEYCLOAK_CONSOLE_CLIENT}
       - ${KEYCLOAK_CLI_CLIENT}
       - ${KEYCLOAK_GATEWAY_CLIENT}
+      # - devspaces                    # add if Dev Spaces signs in through Keycloak (Dev Spaces install guide)
       issuerCertificateAuthority:
         name: keycloak-ca              # remove this block if Keycloak's cert is publicly trusted
     claimMappings:
