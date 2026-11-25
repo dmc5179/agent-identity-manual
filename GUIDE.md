@@ -118,6 +118,30 @@ Connectivity Link).
 Or in the console: **Observe → Traces**, pick TempoStack `agents`, tenant `agents`, and filter on
 `user.id` or `spiffe.id`.
 
+## 7. Demo: a fresh trace on demand
+
+`demo-trace.sh` makes a "user → agent → agent" trace for any agents, without touching their code. For
+each agent, in order, it runs a short-lived pod **as that agent's service account**, so each step
+carries the agent's real SPIFFE ID. The work in each step is a stand-in.
+
+```bash
+cp demo.env.example demo.env && vi demo.env       # DEMO_USER and DEMO_AGENTS (namespace/serviceaccount=Name)
+./demo-trace.sh --dry-run                          # shows the hops; checks the service accounts exist
+./demo-trace.sh                                    # prints the trace ID, console link and the chain
+./demo-trace.sh --user bob agents/planner=Planner agents/researcher=Researcher   # or on the command line
+```
+
+For agents that are already instrumented and expose HTTP, `./demo-trace.sh --user alice --entry-url
+https://<agent>` sends one request with a new trace and the user in baggage, and the real agents carry
+it on.
+
+What to say in the demo: each step shows *which agent* (its SPIFFE identity) acted for *which user*.
+Those two labels are written by the agents (here, by the probe) and aren't yet verified by the platform.
+Platform-verified identity on every step is a request to Red Hat.
+
+The probe pods install `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http` and `spiffe`
+with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that has them.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

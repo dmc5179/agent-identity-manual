@@ -1,5 +1,6 @@
 # Local values and secrets never go in git
 vars.env
+demo.env
 *.key
 *.crt
 *-backup.yaml
