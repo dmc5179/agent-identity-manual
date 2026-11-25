@@ -15,9 +15,10 @@
 #   - If you enable spec.network.externalAccess, also set hostname and a TLS Secret (RHAI-57207).
 #   - OTEL_* env: our lab (2026-11-24) showed the OGX 3.5 image starts exporting from these env vars
 #     alone. A trace span from a real request is still unverified.
-#   - The default "rh" distribution REQUIRES PostgreSQL for its metadata store; without it the pod
-#     crash-loops (StackConfig: storage.backends.*_postgres.db/user missing). Add the PostgreSQL env
-#     from OGX doc 10.3 ("Using PostgreSQL in OGX"), or reuse the Playground's database settings.
+#   - The default "rh" distribution REQUIRES PostgreSQL for its metadata store (env below; names read
+#     from the 3.5.2 image's /opt/app-root/config.yaml). Without it the pod crash-loops
+#     (StackConfig: storage.backends.*_postgres.db/user missing). OGX doc 10.3 covers deploying one.
+#     The Gen AI Studio Playground avoids this with an overrideConfig that uses SQLite on the pod's PV.
 apiVersion: ogx.io/v1beta1
 kind: OGXServer
 metadata:
@@ -50,7 +51,18 @@ spec:
         value: none
       - name: OTEL_LOGS_EXPORTER
         value: none
-      # PostgreSQL metadata store (required, see notes): env names per OGX doc 10.3
+      # PostgreSQL metadata store (required). Create the Secret first:
+      #   oc create secret generic ogx-postgres -n ${OGX_NAMESPACE} --from-literal=password=<pw>
+      - name: POSTGRES_HOST
+        value: <postgres-host>          # for example postgres.${OGX_NAMESPACE}.svc
+      - name: POSTGRES_PORT
+        value: "5432"
+      - name: POSTGRES_DB
+        value: ogx
+      - name: POSTGRES_USER
+        value: ogx
+      - name: POSTGRES_PASSWORD
+        valueFrom: {secretKeyRef: {name: ogx-postgres, key: password}}
       # Point to your model; for MaaS use its URL and an API key Secret:
       # - name: VLLM_URL
       #   value: https://maas.${APPS_DOMAIN}/llm/<model>/v1
