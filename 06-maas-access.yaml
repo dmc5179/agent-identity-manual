@@ -3,7 +3,8 @@
 # AITenant spec.oidc is NOT needed and is left off on purpose:
 #   - spec.oidc accepts one Keycloak client only, checked against "azp" (RHOAIENG-103680, RHAIRFE-3915)
 #   - a private-CA Keycloak gives a bare 401; no CA field (RHOAIENG-103684, CONNLINK-2027)
-# The dashboard cannot create MaaS keys for external-OIDC users (RHAIRFE-3346): use the API.
+# Dashboard key creation (Gen AI studio -> API keys) worked for a Keycloak user with OpenShift direct
+# authentication on RHOAI 3.5.2. RHAIRFE-3346 reports it unsupported for external OIDC; if so, use the API.
 # Key minting returns 500 if Authorino has no serving cert (RHOAIENG-103136, CONNLINK-1976): annotate
 #   the authorino-authorino-authorization Service AFTER Kuadrant reconciles, then restart Authorino.
 # Agents get keys with their service account token; people with their Keycloak/oc token:

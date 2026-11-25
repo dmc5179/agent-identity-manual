@@ -183,7 +183,8 @@ with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that 
 | A second DevWorkspace Operator shows Failed (`InterOperatorGroupOwnerConflict`) | Web Terminal and Dev Spaces were installed in different namespaces. Both depend on the DevWorkspace Operator, so all three must share one namespace (Dev Spaces install guide; KB 6994906). Reinstall Web Terminal in Dev Spaces' namespace (Subscription name must stay `web-terminal`) |
 | Web Terminal stops working after 5 minutes | Its token isn't refreshed under external OIDC; reopen it (no fix yet) |
 | MaaS key creation returns 500 | Authorino serving cert (RHOAIENG-103136): annotate its Service after Kuadrant reconciles, restart Authorino |
-| MaaS from the dashboard fails for Keycloak users | Known (RHAIRFE-3346): create keys with the MaaS API |
+| Dashboard can't create MaaS keys for Keycloak users | With OpenShift direct authentication (step 3), Gen AI studio → API keys works: tested on RHOAI 3.5.2, 2026-11-25. RHAIRFE-3346 reports it unsupported for external OIDC users; if you hit that, create keys with the MaaS API. An empty 503 from the MaaS gateway shows up here as "unexpected end of JSON input" (see the 503 row) |
+| Every MaaS request returns an empty 503 (`wasm_fail_stream` in the gateway log) | The gateway started before the Kuadrant operator after a restart and never loaded its Wasm plugin: `oc rollout restart deployments.apps/maas-default-gateway-openshift-default -n openshift-ingress` |
 | OGX pod crash-loops with `storage.backends.*_postgres` errors | The default distribution needs PostgreSQL env (10) |
 | Agent logs "Failed to export metrics/logs ... 404" | Collector takes traces only; 08 sets `OTEL_METRICS_EXPORTER`/`OTEL_LOGS_EXPORTER=none` |
 | Trace query to Tempo times out | Query through the gateway or the console; NetworkPolicies block direct access |
