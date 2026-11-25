@@ -70,7 +70,8 @@ files: each file gives the `oc create secret` command.
 | File | Checked how |
 |---|---|
 | 01, 02, 03, 12 | Applied on our lab (OCP 4.22.18, ZTWIM 1.1.3), 2026-11-24. An agent pod received X.509 and a 5-minute JWT-SVID; the JWT issuer matched SPIRE's discovery endpoint. Test resources deleted afterwards |
-| 04, 05 | Server-side dry-run on the lab. The same settings were applied and rolled back on 2026-11-11 to 11-16 (Keycloak tests B and C) |
+| 04, 05 | **Applied on our lab 2026-11-24** (OCP 4.22.18, RHOAI 3.5.2) to switch it to an in-cluster Keycloak, permanently: API server rollout, `oc` and console login with Keycloak tokens, RHOAI dashboard through Keycloak (cookie refresh 4m), MaaS keys minted with Keycloak tokens. Found and fixed: the placeholder CA ConfigMap in 04. Seen: the console's Copy login command omits `--oidc-certificate-authority`/`--callback-port`; the Web Terminal token expires after 5 minutes (WTO-660) |
+| Dev Spaces (GUIDE) | Applied on the lab 2026-11-25: `devspaces` client and audience, `networking.auth`; Keycloak login works. Workspaces get a kubeconfig with the user's token, not refreshed (works ~5 min) |
 | 06, 10, 11 | Server-side dry-run on the lab (RHOAI 3.5.2, RHCL 1.5.0) |
 | 07, 08, 09 | Applied on our lab 2026-11-24 (Tempo operator 0.22.0-5, OTel 0.158, COO 1.5.5): a trace showed user -> agent A -> agent B with both SPIFFE IDs and the user carried in baggage |
 | 13 | From the Red Hat docs only; Service Mesh isn't on our lab |
