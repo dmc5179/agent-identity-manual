@@ -1,0 +1,121 @@
+# Step 8: OpenTelemetry collector (receives OTLP from agents and OGX, adds pod/namespace metadata,
+# writes to Tempo tenant "agents") and an Instrumentation for Python auto-instrumentation.
+# Docs: Red Hat build of OpenTelemetry 3.11: Configuring the Collector (2.2 OTLP receiver,
+#   3.8 k8sattributes, 4.2 OTLP gRPC exporter, 6.1 bearertokenauth), Configuring the instrumentation
+#   https://docs.redhat.com/en/documentation/red_hat_build_of_opentelemetry/3.11/html-single/configuring_the_collector/index
+#   https://docs.redhat.com/en/documentation/red_hat_build_of_opentelemetry/3.11/html-single/configuring_the_instrumentation/index
+# Notes:
+#   - Exporter names: otlp_grpc / otlp_http (otlp / otlphttp are deprecated since 3.9). Receiver stays "otlp".
+#   - Doc examples send straight to the Tempo distributor without TLS; this goes through the gateway.
+#   - Python auto-instrumentation is Technology Preview and injects upstream (unsupported) libraries.
+#   - Verified on our lab 2026-11-24 (OTel operator 0.158, Tempo operator 0.22): Service otel-collector,
+#     spans reach Tempo through the gateway, Python injection works on ubi9/python-312.
+#   - If the collector is ever in a mesh, gRPC 4317 breaks behind the sidecar (TRACING-6963):
+#     annotate traffic.sidecar.istio.io/excludeInboundPorts: "4317,4318".
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: otel-collector
+  namespace: ${TRACING_NAMESPACE}
+---
+# Write access to tenant "agents".
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tempo-agents-traces-writer
+rules:
+- apiGroups: [tempo.grafana.com]
+  resources: [agents]
+  resourceNames: [traces]
+  verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tempo-agents-traces-writer
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: tempo-agents-traces-writer}
+subjects:
+- {kind: ServiceAccount, name: otel-collector, namespace: "${TRACING_NAMESPACE}"}
+---
+# k8sattributes needs to read pods, namespaces and replicasets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: otel-collector-k8sattributes
+rules:
+- apiGroups: [""]
+  resources: [pods, namespaces]
+  verbs: [get, watch, list]
+- apiGroups: [apps]
+  resources: [replicasets]
+  verbs: [get, watch, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: otel-collector-k8sattributes
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: otel-collector-k8sattributes}
+subjects:
+- {kind: ServiceAccount, name: otel-collector, namespace: "${TRACING_NAMESPACE}"}
+---
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: otel                        # Service: otel-collector.${TRACING_NAMESPACE}.svc (4317 gRPC, 4318 HTTP)
+  namespace: ${TRACING_NAMESPACE}
+spec:
+  mode: deployment
+  serviceAccount: otel-collector
+  config:
+    extensions:
+      bearertokenauth:              # the collector's SA token, accepted by the Tempo gateway
+        filename: /var/run/secrets/kubernetes.io/serviceaccount/token
+    receivers:
+      otlp:
+        protocols:
+          grpc: {endpoint: 0.0.0.0:4317}
+          http: {endpoint: 0.0.0.0:4318}
+    processors:
+      k8s_attributes: {}            # adds k8s.namespace.name, k8s.pod.name, ... ("k8sattributes" is deprecated in 0.158)
+      batch: {}
+    exporters:
+      otlp_grpc/agents:
+        endpoint: tempo-agents-gateway.${TRACING_NAMESPACE}.svc.cluster.local:8090
+        tls:
+          insecure: false
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        auth:
+          authenticator: bearertokenauth
+        headers:
+          X-Scope-OrgID: agents     # the tenant from 07
+    service:
+      extensions: [bearertokenauth]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [k8s_attributes, batch]
+          exporters: [otlp_grpc/agents]
+---
+# Pods opt in with: instrumentation.opentelemetry.io/inject-python: "${TRACING_NAMESPACE}/agents"
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: agents
+  namespace: ${TRACING_NAMESPACE}
+spec:
+  env:                              # this collector takes traces only; without these the SDK logs 404s
+  - {name: OTEL_METRICS_EXPORTER, value: none}
+  - {name: OTEL_LOGS_EXPORTER, value: none}
+  exporter:
+    endpoint: http://otel-collector.${TRACING_NAMESPACE}.svc.cluster.local:4317
+  propagators:                      # W3C trace context + baggage carry the user across agents
+  - tracecontext                    # (verified on the lab, user.id reached agent B via baggage).
+  - baggage                         # With Service Mesh the docs require b3multi; untested with these.
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1"                   # 100%; lower it for production
+  python:
+    env:
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: http://otel-collector.${TRACING_NAMESPACE}.svc.cluster.local:4318   # Python uses http/protobuf

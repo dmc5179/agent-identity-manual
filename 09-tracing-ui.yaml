@@ -1,0 +1,15 @@
+# Step 9: console Observe -> Traces (Cluster Observability Operator distributed tracing plugin).
+# Pick the TempoStack "agents" and tenant "agents" in the UI. Readers need the ClusterRole from 07.
+# Docs: COO UI plugins, ch. 4 (Distributed tracing UI plugin; GA)
+#   https://docs.redhat.com/en/documentation/red_hat_openshift_cluster_observability_operator/1-latest/html-single/ui_plugins_for_red_hat_openshift_cluster_observability_operator/index
+# Notes: cluster-scoped. The name MUST be distributed-tracing; the API rejects any other
+#   (verified on our lab, COO 1.5.5). Works only with a
+#   multitenant Tempo. COO 1.6.0 fixes a crash on large traces (TRACING-6229).
+# This is the "who called what" view: filter spans by user.id or spiffe.id attributes that the
+# agents set (12). There is no ZTWIM/SPIRE dashboard; SPIRE only exposes Prometheus metrics.
+apiVersion: observability.openshift.io/v1alpha1
+kind: UIPlugin
+metadata:
+  name: distributed-tracing
+spec:
+  type: DistributedTracing

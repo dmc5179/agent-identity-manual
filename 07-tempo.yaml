@@ -1,0 +1,74 @@
+# Step 7: Tempo trace store. TempoStack with one tenant ("agents"), gateway on, S3 storage.
+# Docs: Tempo 3.11 Installing (1.2 storage, 1.3 tenant RBAC, 1.4 TempoStack) and Configuring (1.4 sizing)
+#   https://docs.redhat.com/en/documentation/red_hat_openshift_distributed_tracing_platform/3.11/html-single/installing_distributed_tracing/index
+#   https://docs.redhat.com/en/documentation/red_hat_openshift_distributed_tracing_platform/3.11/html-single/configuring_distributed_tracing/index
+# Notes:
+#   - Since Tempo 3.11, tenants + gateway are REQUIRED for support. Jaeger UI is deprecated; use the
+#     console plugin (09).
+#   - TempoMonolithic (PV, no S3) is Technology Preview; fine for a PoC, not for production.
+#   - size 1x.demo has no requests and no HA. Production: 1x.pico or larger (~5.8 vCPU / 12 GiB).
+#   - Namespace must not start with openshift-.
+#   - Under external OIDC the gateway needs Tempo 3.11+ (TRACING-6646).
+#   - The operator adds NetworkPolicies: read traces through the gateway (or the console), not the
+#     query-frontend directly; direct queries time out.
+#   - Verified on our lab 2026-11-24 (Tempo operator 0.22.0-5): Ready in ~75 s, gateway Service
+#     tempo-agents-gateway (8090 gRPC, 8080 HTTP).
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${TRACING_NAMESPACE}
+---
+# S3 bucket for traces. Create with your own values:
+#   oc create secret generic tempo-s3 -n ${TRACING_NAMESPACE} \
+#     --from-literal=bucket=<bucket> --from-literal=endpoint=https://s3.<region>.amazonaws.com \
+#     --from-literal=access_key_id=<id> --from-literal=access_key_secret=<secret>
+# (STS instead of keys: Technology Preview; keys: bucket, region, role_arn + credentialMode token-cco)
+---
+apiVersion: tempo.grafana.com/v1alpha1
+kind: TempoStack
+metadata:
+  name: agents                      # gateway Service: tempo-agents-gateway (gRPC 8090)
+  namespace: ${TRACING_NAMESPACE}
+spec:
+  size: 1x.demo                     # PoC; 1x.pico for production
+  storageSize: 10Gi                 # WAL PVC
+  storage:
+    secret:
+      name: tempo-s3
+      type: s3
+  tenants:
+    mode: openshift                 # must be openshift
+    authentication:
+    - tenantName: agents            # sent as X-Scope-OrgID
+      tenantId: 7c1f0a52-0d2e-4c43-9b7e-2f6a1d9e4a10   # any UUID, never change it later
+  template:
+    gateway:
+      enabled: true
+    queryFrontend:
+      jaegerQuery:
+        enabled: false              # deprecated; use the console plugin
+---
+# Who can read traces of tenant "agents" (console Observe -> Traces). Tenant access is global.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: tempo-agents-traces-reader
+rules:
+- apiGroups: [tempo.grafana.com]
+  resources: [agents]               # the tenant name
+  resourceNames: [traces]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: tempo-agents-traces-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tempo-agents-traces-reader
+subjects:
+- kind: Group
+  apiGroup: rbac.authorization.k8s.io
+  name: tracing-viewers             # a Keycloak group (groups claim); docs example uses system:authenticated
