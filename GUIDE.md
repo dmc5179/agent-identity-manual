@@ -56,12 +56,23 @@ oc create configmap keycloak-ca -n openshift-config --from-file=ca-bundle.crt=ke
 oc create secret generic keycloak-console-client -n openshift-config --from-literal=clientSecret=<console-secret>
 ./render.sh 04-openshift-external-oidc.yaml --apply
 oc get co kube-apiserver -w                        # wait until Progressing=False (~20 min)
-oc login --exec-plugin=oc-oidc --issuer-url="$KEYCLOAK_ISSUER" --client-id="$KEYCLOAK_CLI_CLIENT" --callback-port=8080
+oc login https://api.<cluster>:6443 --exec-plugin=oc-oidc --issuer-url="$KEYCLOAK_ISSUER" \
+  --client-id="$KEYCLOAK_CLI_CLIENT" --callback-port=8080 \
+  --oidc-certificate-authority keycloak-ca.crt     # only if Keycloak uses a private CA
 oc whoami                                          # your Keycloak user
 
 oc create secret generic keycloak-gateway-client -n openshift-ingress --from-literal=clientSecret=<gateway-secret>
 ./render.sh 05-rhoai-gateway-oidc.yaml --apply     # RHOAI dashboard via Keycloak
 ```
+
+**Copy login command.** With the `cli` client set (04), the console's Copy login command shows an
+`oc login ... --exec-plugin oc-oidc` command for users. It leaves out two flags users may need:
+`--oidc-certificate-authority <file>` when Keycloak's certificate is from a private CA (otherwise the
+plugin fails with `x509: certificate signed by unknown authority`, even if you accept the API server's
+certificate as insecure), and `--callback-port 8080` when the Keycloak client only allows
+`http://localhost:8080` as a redirect. A self-signed API server certificate also needs
+`--certificate-authority <api-ca>`. Seen on OpenShift 4.22.18. Either share the full command with
+users, or add the CAs to their system trust store.
 
 If the dashboard login loops or uses an old secret: `oc delete secret kube-auth-proxy-creds -n
 openshift-ingress`, wait for it to return, `oc rollout restart deploy/kube-auth-proxy -n openshift-ingress`.
@@ -149,7 +160,8 @@ with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that 
 | Pod has no `/spiffe-workload-api/spire-agent.sock` | No spire-agent on that node: keep `tolerations: [{operator: Exists}]` (02) |
 | ClusterSPIFFEID selects 0 pods | Missing `className: zero-trust-workload-identity-manager-spire`, or the pod lacks `agent-identity: "true"` |
 | SPIRE resource rejected: "must be of type string" | `managedRoute`, `k8sPSATEnabled` etc. are strings: quote `"true"` |
-| `oc` login works, console shows no Copy login command | Needs the `cli` client in 04; known issue OCPBUGS-54761 |
+| `oc` login works, console shows no Copy login command | Needs the `cli` client in 04; known issue OCPBUGS-54761 (not seen on self-managed 4.22.18) |
+| Copied login command fails: `x509: certificate signed by unknown authority` from `oidc discovery` | Add `--oidc-certificate-authority <keycloak-ca>` (and `--callback-port 8080`); the console omits them |
 | Web Terminal stops working after 5 minutes | Its token isn't refreshed under external OIDC; reopen it (no fix yet) |
 | MaaS key creation returns 500 | Authorino serving cert (RHOAIENG-103136): annotate its Service after Kuadrant reconciles, restart Authorino |
 | MaaS from the dashboard fails for Keycloak users | Known (RHAIRFE-3346): create keys with the MaaS API |
