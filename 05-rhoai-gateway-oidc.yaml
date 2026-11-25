@@ -1,0 +1,35 @@
+# Step 5: RHOAI central authentication (dashboard, workbenches, Gen AI Studio) against Keycloak.
+# Apply AFTER 04 has rolled out. RHOAI requires OpenShift direct OIDC first.
+# Docs: RHOAI 3.5 Administer OpenShift AI, ch. 10 (Configure a central authentication service
+#   for an external OIDC provider)
+#   https://access.redhat.com/documentation/en-us/red_hat_openshift_ai_self-managed/3.5/html-single/managing_openshift_ai/index#configuring-external-oidc-provider_managing-rhoai
+# Known issues (all hit on our lab, 2026-11-11 to 11-16):
+#   - Create keycloak-gateway-client BEFORE the first apply. If you change the client or its secret
+#     later, refresh the copy the auth proxy uses:
+#       oc delete secret kube-auth-proxy-creds -n openshift-ingress
+#       (wait for it to come back) oc rollout restart deployment/kube-auth-proxy -n openshift-ingress
+#   - The doc's Secret names are inconsistent (RHOAIENG-103487); the names below are what worked.
+#   - Keycloak redirect URI must be https://${RHOAI_GATEWAY_HOST}/oauth2/callback (RHOAIENG-103679).
+#   - cookie.refresh must be BELOW Keycloak's access-token lifespan (RHOAIENG-103678): 4m for 5m tokens.
+---
+# Gateway client secret. Create with:
+#   oc create secret generic keycloak-gateway-client -n openshift-ingress --from-literal=clientSecret=<secret>
+# Keycloak CA for the gateway, only if not publicly trusted (key ca.crt):
+#   oc create secret generic keycloak-ca -n openshift-ingress --from-file=ca.crt=keycloak-ca.crt
+---
+apiVersion: services.platform.opendatahub.io/v1alpha1
+kind: GatewayConfig
+metadata:
+  name: default-gateway          # exists already; this merges into it (oc apply)
+spec:
+  oidc:
+    issuerURL: ${KEYCLOAK_ISSUER}
+    clientID: ${KEYCLOAK_GATEWAY_CLIENT}
+    clientSecretRef:
+      name: keycloak-gateway-client
+      key: clientSecret
+  providerCASecretName: keycloak-ca   # remove if Keycloak's cert is publicly trusted
+  cookie:
+    refresh: 4m                  # < Keycloak access-token lifespan (5m here)
+    expire: 24h0m0s
+  enableK8sTokenValidation: true # also accept service account bearer tokens (CLI, agents)

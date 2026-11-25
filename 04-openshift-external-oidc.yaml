@@ -1,0 +1,75 @@
+# Step 4: OpenShift direct authentication with the external Keycloak.
+# DISRUPTIVE: turns off the built-in OAuth server for everyone (htpasswd logins, oauth-proxy apps,
+# User/Group/OAuthClient APIs). kube-apiserver rolls out on every control-plane node (~20 min).
+# BEFORE: keep the installer's kubeconfig (cert-based, keeps working); back up
+#   oc get authentications.config.openshift.io cluster -o yaml
+# Docs: OCP 4.22 Authentication and authorization, ch. 8 (GA; ch. 9 advanced fields are TP)
+#   https://access.redhat.com/documentation/en-us/openshift_container_platform/4.22/html-single/authentication_and_authorization/index#external-auth-configuring_external-auth
+# Known issues:
+#   - Apps that sign in via OpenShift OAuth (oauth-proxy) stop working (OSDOCS-24488). RHOAI uses its
+#     own gateway instead (05).
+#   - One external IdP only (KB 7131263, OCPSTRAT-2375).
+#   - Copy login command: needs the "cli" client below (CONSOLE-3902); missing on some clusters
+#     (OCPBUGS-54761). The generated command has no --oidc-certificate-authority.
+#   - Web Terminal: needs Web Terminal Operator 1.15.1 or later; its token is not refreshed, so
+#     short-lived tokens expire in the terminal.
+#   - Create the CA ConfigMap BEFORE the Authentication change; console pods can hang without it
+#     (OCPBUGS-31520, OCPBUGS-62011).
+#   - oc login prints a harmless error with the exec plugin (OCPBUGS-84868).
+---
+# Keycloak's CA, only if its certificate is not publicly trusted. Key must be ca-bundle.crt.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: keycloak-ca
+  namespace: openshift-config
+data:
+  ca-bundle.crt: |
+    -----BEGIN CERTIFICATE-----
+    REPLACE_WITH_KEYCLOAK_CA
+    -----END CERTIFICATE-----
+---
+# Console client secret. Create with:
+#   oc create secret generic keycloak-console-client -n openshift-config --from-literal=clientSecret=<secret>
+# (shown here commented so no secret lands in a file)
+# apiVersion: v1
+# kind: Secret
+# metadata: {name: keycloak-console-client, namespace: openshift-config}
+# stringData: {clientSecret: <secret>}
+---
+apiVersion: config.openshift.io/v1
+kind: Authentication
+metadata:
+  name: cluster
+spec:
+  type: OIDC
+  webhookTokenAuthenticator: null
+  oidcProviders:
+  - name: keycloak
+    issuer:
+      issuerURL: ${KEYCLOAK_ISSUER}
+      audiences:                       # every client whose tokens should reach the API server
+      - ${KEYCLOAK_CONSOLE_CLIENT}
+      - ${KEYCLOAK_CLI_CLIENT}
+      - ${KEYCLOAK_GATEWAY_CLIENT}
+      issuerCertificateAuthority:
+        name: keycloak-ca              # remove this block if Keycloak's cert is publicly trusted
+    claimMappings:
+      username:
+        claim: preferred_username
+        prefixPolicy: NoPrefix         # keeps existing RoleBindings for "alice" matching
+      groups:
+        claim: groups                  # Keycloak group mapper with full path OFF, so "maas-users" not "/maas-users"
+    oidcClients:
+    - componentName: cli               # enables the console's Copy login command (oc-oidc)
+      componentNamespace: openshift-console
+      clientID: ${KEYCLOAK_CLI_CLIENT}
+    - componentName: console
+      componentNamespace: openshift-console
+      clientID: ${KEYCLOAK_CONSOLE_CLIENT}
+      clientSecret:
+        name: keycloak-console-client
+# Verify after rollout:
+#   oc get kubeapiservers.operator.openshift.io cluster -o jsonpath='{.status.latestAvailableRevision}'
+#   oc login --exec-plugin=oc-oidc --issuer-url=${KEYCLOAK_ISSUER} --client-id=${KEYCLOAK_CLI_CLIENT} \
+#     --callback-port=8080 [--oidc-certificate-authority ca.crt]; oc whoami
