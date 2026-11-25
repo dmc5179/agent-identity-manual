@@ -17,17 +17,9 @@
 #     (OCPBUGS-31520, OCPBUGS-62011).
 #   - oc login prints a harmless error with the exec plugin (OCPBUGS-84868).
 ---
-# Keycloak's CA, only if its certificate is not publicly trusted. Key must be ca-bundle.crt.
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: keycloak-ca
-  namespace: openshift-config
-data:
-  ca-bundle.crt: |
-    -----BEGIN CERTIFICATE-----
-    REPLACE_WITH_KEYCLOAK_CA
-    -----END CERTIFICATE-----
+# Keycloak's CA, only if its certificate is not publicly trusted (key must be ca-bundle.crt).
+# Create it BEFORE applying this file:
+#   oc create configmap keycloak-ca -n openshift-config --from-file=ca-bundle.crt=keycloak-ca.crt
 ---
 # Console client secret. Create with:
 #   oc create secret generic keycloak-console-client -n openshift-config --from-literal=clientSecret=<secret>
