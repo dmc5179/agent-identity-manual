@@ -1,0 +1,142 @@
+# Agent identity with an external Keycloak: deployment guide
+
+Goal: every agent has a workload identity (SPIFFE, from ZTWIM), every person signs in with Keycloak,
+and one trace shows **user → agent → agent → OGX/model** with both identities on each hop.
+
+Assumes OpenShift 4.22 with these operators **installed but not configured**: ZTWIM, OpenShift AI 3.5
+(OGX, MaaS), Connectivity Link 1.5, Red Hat build of OpenTelemetry, Tempo, Cluster Observability
+Operator, and (optional) Service Mesh 3. Details, doc links and known issues are in the comments of each YAML file.
+
+## 0. Prepare (15 min)
+
+```bash
+cp vars.env.example vars.env && vi vars.env       # cluster, Keycloak, trust domain, namespaces
+chmod +x render.sh verify.sh trace-query.sh
+```
+
+- **Keycloak**: import `00-keycloak-realm-clients.json` (after filling the `${...}` values), then note
+  the console and gateway client secrets.
+- **Decide the trust domain now.** It can't be changed later without rebuilding SPIRE.
+- **FIPS cluster?** ZTWIM isn't supported there (KB 7144070). Stop and raise it.
+- Every step: `./render.sh FILE --check` first, then `./render.sh FILE --apply`.
+
+## 1. Workload identity (no downtime, ~15 min)
+
+```bash
+./render.sh 01-ztwim.yaml --apply                  # trust domain + cluster name: FIRST
+oc get zerotrustworkloadidentitymanagers.operator.openshift.io cluster   # wait for it
+./render.sh 02-spire.yaml --apply                  # server, agents, CSI driver, OIDC discovery
+oc get pods -n zero-trust-workload-identity-manager -w   # spire-server-0, one spire-agent per node
+./render.sh 03-agent-spiffe-ids.yaml --apply       # IDs for pods labelled agent-identity=true
+```
+
+Using SPIRE as the Service Mesh CA later? Set `CREATE_ONLY_MODE=true` on the ZTWIM Subscription
+**before** `02` (see `13-service-mesh.yaml`).
+
+## 2. Tracing (no downtime, ~20 min)
+
+```bash
+oc create namespace "$TRACING_NAMESPACE"
+oc create secret generic tempo-s3 -n "$TRACING_NAMESPACE" --from-literal=bucket=<bucket> \
+  --from-literal=endpoint=https://s3.<region>.amazonaws.com \
+  --from-literal=access_key_id=<id> --from-literal=access_key_secret=<secret>
+./render.sh 07-tempo.yaml --apply                  # wait: TempoStack agents Ready
+./render.sh 08-opentelemetry.yaml --apply          # collector + Python Instrumentation
+oc apply -f 09-tracing-ui.yaml                     # console: Observe -> Traces
+oc adm groups new tracing-viewers <you>            # or a Keycloak group of that name after step 3
+```
+
+## 3. Sign-in switch (CHANGE WINDOW, ~30 min)
+
+This turns off OpenShift's built-in OAuth for everyone. Keep the installer kubeconfig (it keeps
+working), and back up: `oc get authentications.config.openshift.io cluster -o yaml > auth-backup.yaml`.
+
+```bash
+oc create configmap keycloak-ca -n openshift-config --from-file=ca-bundle.crt=keycloak-ca.crt   # private CA only
+oc create secret generic keycloak-console-client -n openshift-config --from-literal=clientSecret=<console-secret>
+./render.sh 04-openshift-external-oidc.yaml --apply
+oc get co kube-apiserver -w                        # wait until Progressing=False (~20 min)
+oc login --exec-plugin=oc-oidc --issuer-url="$KEYCLOAK_ISSUER" --client-id="$KEYCLOAK_CLI_CLIENT" --callback-port=8080
+oc whoami                                          # your Keycloak user
+
+oc create secret generic keycloak-gateway-client -n openshift-ingress --from-literal=clientSecret=<gateway-secret>
+./render.sh 05-rhoai-gateway-oidc.yaml --apply     # RHOAI dashboard via Keycloak
+```
+
+If the dashboard login loops or uses an old secret: `oc delete secret kube-auth-proxy-creds -n
+openshift-ingress`, wait for it to return, `oc rollout restart deploy/kube-auth-proxy -n openshift-ingress`.
+
+## 4. Models, OGX, agents (~30 min)
+
+```bash
+vi 06-maas-access.yaml                             # set <model> and <model-ns>
+./render.sh 06-maas-access.yaml --apply            # Keycloak group + agent service accounts
+./render.sh 10-ogx.yaml --check                    # add the PostgreSQL env first (see file notes)
+./render.sh 10-ogx.yaml --apply
+./render.sh 12-example-agent.yaml --apply          # replace the image with your agent
+```
+
+Optional: `11-authpolicy-agent-or-user.yaml` (gateway accepts a Keycloak user OR a SPIRE agent) and
+`13-service-mesh.yaml` (read it fully first: it can break OpenShift's Gateway API).
+
+## 5. In your agent code
+
+Each agent fetches its identity, tags its spans, and passes the user along:
+
+```python
+from opentelemetry import trace, baggage, context, propagate
+from spiffe import WorkloadApiClient                     # pip install spiffe
+
+spiffe_id = str(WorkloadApiClient().fetch_x509_svid().spiffe_id)
+tracer = trace.get_tracer("agent-a")
+
+def handle(user_id, call_next_agent):
+    tok = context.attach(baggage.set_baggage("user.id", user_id))   # from the Keycloak token
+    with tracer.start_as_current_span("agent-a.handle") as span:
+        span.set_attribute("user.id", user_id)
+        span.set_attribute("spiffe.id", spiffe_id)
+        headers = {}; propagate.inject(headers)              # traceparent + baggage
+        call_next_agent(headers)
+    context.detach(tok)
+
+# Receiving side: lowercase header names before extracting (urllib sends "Traceparent").
+# ctx = propagate.extract({k.lower(): v for k, v in request_headers.items()})
+# user = baggage.get_baggage("user.id", ctx)
+```
+
+For calls to another service, get a JWT-SVID with `fetch_jwt_svid(audience={"<audience>"})` and send it
+as `Authorization: Bearer`. The receiver verifies it against `$SPIRE_JWT_ISSUER` (file 11 does this in
+Connectivity Link).
+
+## 6. Verify
+
+```bash
+./verify.sh                                        # one line per component
+./trace-query.sh <trace-id>                        # user and SPIFFE ID on every hop
+```
+
+Or in the console: **Observe → Traces**, pick TempoStack `agents`, tenant `agents`, and filter on
+`user.id` or `spiffe.id`.
+
+## Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| Pod has no `/spiffe-workload-api/spire-agent.sock` | No spire-agent on that node: keep `tolerations: [{operator: Exists}]` (02) |
+| ClusterSPIFFEID selects 0 pods | Missing `className: zero-trust-workload-identity-manager-spire`, or the pod lacks `agent-identity: "true"` |
+| SPIRE resource rejected: "must be of type string" | `managedRoute`, `k8sPSATEnabled` etc. are strings: quote `"true"` |
+| `oc` login works, console shows no Copy login command | Needs the `cli` client in 04; known issue OCPBUGS-54761 |
+| Web Terminal stops working after 5 minutes | Its token isn't refreshed under external OIDC; reopen it (no fix yet) |
+| MaaS key creation returns 500 | Authorino serving cert (RHOAIENG-103136): annotate its Service after Kuadrant reconciles, restart Authorino |
+| MaaS from the dashboard fails for Keycloak users | Known (RHAIRFE-3346): create keys with the MaaS API |
+| OGX pod crash-loops with `storage.backends.*_postgres` errors | The default distribution needs PostgreSQL env (10) |
+| Agent logs "Failed to export metrics/logs ... 404" | Collector takes traces only; 08 sets `OTEL_METRICS_EXPORTER`/`OTEL_LOGS_EXPORTER=none` |
+| Trace query to Tempo times out | Query through the gateway or the console; NetworkPolicies block direct access |
+| Agent B's span starts a new trace | Header names not lowercased before `propagate.extract` |
+
+## Roll back the sign-in switch
+
+```bash
+oc replace -f auth-backup.yaml                     # with the installer kubeconfig; ~20 min rollout
+oc patch gatewayconfigs.services.platform.opendatahub.io default-gateway --type=json -p '[{"op":"remove","path":"/spec/oidc"}]'
+```
