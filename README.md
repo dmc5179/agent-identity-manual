@@ -49,7 +49,7 @@ ZTWIM first, then SPIRE, as SPIRE reads the trust domain and cluster name from t
 If you plan to use SPIRE as the Service Mesh CA (13), set `CREATE_ONLY_MODE=true` on the ZTWIM
 Subscription **before step 2**, as OSSM 3.5 Installing 7.3.1 orders it (whether it can be added later is untested).
 Tracing (7, 8, 9) should exist before agents and OGX start, or their first spans are lost.
-Steps 1–3 and 7–9 don't depend on the sign-in switch, so they can be done before the change window
+Steps 1–3 and 7–9 do not depend on the sign-in switch, so they can be done before the change window
 for step 4.
 
 ## Apply
@@ -75,7 +75,7 @@ files: each file gives the `oc create secret` command.
 | Dev Spaces (GUIDE) | Applied on the lab 2026-11-25: `devspaces` client and audience, `networking.auth`; Keycloak login works. Workspaces get a kubeconfig with the user's token, not refreshed (works ~5 min) |
 | 06, 10, 11 | Server-side dry-run on the lab (RHOAI 3.5.2, RHCL 1.5.0) |
 | 07, 08, 09 | Applied on our lab 2026-11-24 (Tempo operator 0.22.0-5, OTel 0.158, COO 1.5.5): a trace showed user -> agent A -> agent B with both SPIFFE IDs and the user carried in baggage |
-| 13 | From the Red Hat docs only; Service Mesh isn't on our lab |
+| 13 | From the Red Hat docs only; Service Mesh is not on our lab |
 | `demo-trace.sh` MCP step | Run on the lab 2026-11-25 with and without `--mcp-tool`: the last agent's `tools/call` through the Connectivity Link 1.5 MCP gateway to the MCP server for Red Hat OpenShift, authenticated as the agent's service account; the server applied the agent's own RBAC |
 | TRACE-FORMAT.md | OTLP structure from a real trace read back from Tempo; OGX span and metric names read from the OGX 3.5.2 server image. Not yet confirmed against a live OGX trace |
 

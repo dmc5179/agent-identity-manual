@@ -6,3 +6,6 @@ demo.env
 *-backup.yaml
 # Local research notes, lab inventory and teardown (not published)
 research/
+# Vale: the downloaded style is fetched by vale sync; only the vocabulary is kept
+.vale/styles/*
+!.vale/styles/config/

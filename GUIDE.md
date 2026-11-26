@@ -16,8 +16,8 @@ chmod +x render.sh verify.sh trace-query.sh
 
 - **Keycloak**: import `00-keycloak-realm-clients.json` (after filling the `${...}` values), then note
   the console and gateway client secrets.
-- **Decide the trust domain now.** It can't be changed later without rebuilding SPIRE.
-- **FIPS cluster?** ZTWIM isn't supported there (KB 7144070). Stop and raise it.
+- **Decide the trust domain now.** It cannot be changed later without rebuilding SPIRE.
+- **FIPS cluster?** ZTWIM is not supported there (KB 7144070). Stop and raise it.
 - Every step: `./render.sh FILE --check` first, then `./render.sh FILE --apply`.
 
 ## 1. Workload identity (no downtime, ~15 min)
@@ -48,7 +48,7 @@ oc adm groups new tracing-viewers <you>            # or a Keycloak group of that
 
 ## 3. Sign-in switch (CHANGE WINDOW, ~30 min)
 
-This turns off OpenShift's built-in OAuth for everyone. Keep the installer kubeconfig (it keeps
+This turns off OpenShift's built-in OAuth for everyone. Keep the installation program's kubeconfig (it keeps
 working), and back up: `oc get authentications.config.openshift.io cluster -o yaml > auth-backup.yaml`.
 
 ```bash
@@ -73,7 +73,7 @@ certificate as insecure), and `--callback-port <port>`, where the port must be o
 redirect URIs (`http://localhost:<port>`); any other port fails at Keycloak with "invalid parameter:
 redirect_url". Register a second port for users whose 8080 is already taken. A self-signed API server certificate also needs
 `--certificate-authority <api-ca>`. Seen on OpenShift 4.22.18 (OCPBUGS-147680). Either share the full command with
-users, or add the CAs to their system trust store.
+users, or add the CAs to their system truststore.
 
 If the dashboard login loops or uses an old secret: `oc delete secret kube-auth-proxy-creds -n
 openshift-ingress`, wait for it to return, `oc rollout restart deploy/kube-auth-proxy -n openshift-ingress`.
@@ -111,20 +111,20 @@ Dev Spaces signs in through the OpenShift OAuth server by default, so after step
 it uses Keycloak (Dev Spaces install guide, "Use an external identity provider for authentication"):
 a confidential Keycloak client `devspaces` (redirect `<cheURL>/oauth/callback`, web origin `<cheURL>`),
 `devspaces` added to the audiences in 04 (another ~20 min API rollout), a Secret `oauth-secret` (key
-`oAuthSecret`) and, for a private CA, a `keycloak-certs` ConfigMap labelled
+`oAuthSecret`) and, for a private CA, a `keycloak-certs` ConfigMap labeled
 `app.kubernetes.io/component=ca-bundle` in `openshift-devspaces`, then on the CheCluster:
 `spec.networking.auth.oAuthClientName: devspaces`, `oAuthSecret: oauth-secret`,
 `identityProviderURL: <issuer>`, `gateway.oAuthProxy.cookieExpireSeconds: 300`, and the oauth-proxy
 env `OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256`. Dev Spaces, the DevWorkspace Operator and Web Terminal
 must be installed in one namespace. A workspace gets a kubeconfig with the user's own token, which
-isn't refreshed: `oc` in the workspace works for about 5 minutes after it starts (CRW-14511).
+is not refreshed: `oc` in the workspace works for about 5 minutes after it starts (CRW-14511).
 
 ## 4. Models, OGX, agents (~30 min)
 
 ```bash
 vi 06-maas-access.yaml                             # set <model> and <model-ns>
 ./render.sh 06-maas-access.yaml --apply            # Keycloak group + agent service accounts
-./render.sh 10-ogx.yaml --check                    # add the PostgreSQL env first (see file notes)
+./render.sh 10-ogx.yaml --check                    # add the PostgreSQL environment variables first (see file notes)
 ./render.sh 10-ogx.yaml --apply
 ./render.sh 12-example-agent.yaml --apply          # replace the image with your agent
 ```
@@ -168,17 +168,17 @@ Connectivity Link).
 ./trace-query.sh <trace-id>                        # user and SPIFFE ID on every hop
 ```
 
-Or in the console: **Observe → Traces**, pick TempoStack `agents`, tenant `agents`, and filter on
+In the console instead: **Observe → Traces**, pick TempoStack `agents`, tenant `agents`, and filter on
 `user.id` or `spiffe.id`.
 
-## 7. Demo: a fresh trace on demand
+## 7. Demo: a fresh trace at any time
 
 `demo-trace.sh` makes a "user → agent → agent" trace for any agents, without touching their code. For
 each agent, in order, it runs a short-lived pod **as that agent's service account**, so each step
 carries the agent's real SPIFFE ID. The work is a stand-in: each agent's span shows a few steps (think,
 tool lookup, call the next agent, write answer) on a staged timeline of a few seconds per agent, so the
-console's timeline view reads like a real request. Those steps carry `demo.simulated=true`; `DEMO_PACE=2`
-in `demo.env` doubles the timing.
+console's timeline view reads like a real request. Those steps carry `demo.simulated=true`; set
+`DEMO_PACE=2` to double the timing.
 
 ```bash
 cp demo.env.example demo.env && vi demo.env       # DEMO_USER and DEMO_AGENTS (namespace/serviceaccount=Name)
@@ -210,7 +210,7 @@ https://<agent>` sends one request with a new trace and the user in baggage, and
 it on.
 
 What to say in the demo: each step shows *which agent* (its SPIFFE identity) acted for *which user*.
-Those two labels are written by the agents (here, by the probe) and aren't yet verified by the platform.
+Those two labels are written by the agents (here, by the probe) and are not yet verified by the platform.
 Platform-verified identity on every step is a request to Red Hat.
 
 The probe pods install `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http` and `spiffe`
@@ -259,11 +259,11 @@ MCPServerRegistration to the versions it really serves.
 | SPIRE resource rejected: "must be of type string" | `managedRoute`, `k8sPSATEnabled` etc. are strings: quote `"true"` |
 | `oc` login works, console shows no Copy login command | Needs the `cli` client in 04; known issue OCPBUGS-54761 (not seen on self-managed 4.22.18) |
 | Copied login command fails: `x509: certificate signed by unknown authority` from `oidc discovery` | Add `--oidc-certificate-authority <keycloak-ca>` (and `--callback-port 8080`); the console omits them (OCPBUGS-147680) |
-| Keycloak says "invalid parameter: redirect_url" after `oc login` | The `--callback-port` isn't a redirect URI on the CLI client: add `http://localhost:<port>` and `http://localhost:<port>/*` |
+| Keycloak says "invalid parameter: redirect_url" after `oc login` | The `--callback-port` is not a redirect URI on the CLI client: add `http://localhost:<port>` and `http://localhost:<port>/*` |
 | A second DevWorkspace Operator shows Failed (`InterOperatorGroupOwnerConflict`) | Web Terminal and Dev Spaces were installed in different namespaces. Both depend on the DevWorkspace Operator, so all three must share one namespace (Dev Spaces install guide; KB 6994906). Reinstall Web Terminal in Dev Spaces' namespace (Subscription name must stay `web-terminal`) |
-| Web Terminal stops working after 5 minutes | Its token isn't refreshed under external OIDC; reopen it (no fix yet, WTO-660) |
+| Web Terminal stops working after 5 minutes | Its token is not refreshed under external OIDC; reopen it (no fix yet, WTO-660) |
 | MaaS key creation returns 500 | Authorino serving cert (RHOAIENG-103136): annotate its Service after Kuadrant reconciles, restart Authorino |
-| Dashboard can't create MaaS keys for Keycloak users | With OpenShift direct authentication (step 3), Gen AI studio → API keys works: tested on RHOAI 3.5.2, 2026-11-25. RHAIRFE-3346 reports it unsupported for external OIDC users; if you hit that, create keys with the MaaS API. An empty 503 from the MaaS gateway shows up here as "unexpected end of JSON input" (see the 503 row) |
+| Dashboard cannot create MaaS keys for Keycloak users | With OpenShift direct authentication (step 3), Gen AI studio → API keys works: tested on RHOAI 3.5.2, 2026-11-25. RHAIRFE-3346 reports it unsupported for external OIDC users; if you hit that, create keys with the MaaS API. An empty 503 from the MaaS gateway shows up here as "unexpected end of JSON input" (see the 503 row) |
 | Every MaaS request returns an empty 503 (`wasm_fail_stream` in the gateway log) | The gateway's Envoy never loaded the Kuadrant Wasm plugin (it fails closed), seen after a restart and on a newly created gateway: `oc rollout restart deployments.apps/maas-default-gateway-openshift-default -n openshift-ingress` |
 | Requests through a Gateway other than MaaS (for example an MCP gateway) with a Kuadrant AuthPolicy all return 500; the Wasm log says "gRPC status code is not OK" | RHOAI turns on TLS for Authorino's gRPC port and patches only the MaaS gateway for it. Add an EnvoyFilter for your Gateway like `maas-default-gateway-authn-ssl` in `openshift-ingress` (RHOAIENG-103137) |
 | MCP server registrations NotReady: `no matching mcpgatewayextensions for attached listener` | The public listener and the internal `*.mcp.local` listener do not share the same port; the controller matches registrations to the MCPGatewayExtension by listener port (8) |
