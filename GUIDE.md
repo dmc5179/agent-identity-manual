@@ -159,6 +159,20 @@ cp demo.env.example demo.env && vi demo.env       # DEMO_USER and DEMO_AGENTS (n
 ./demo-trace.sh --user bob agents/planner=Planner agents/researcher=Researcher   # or on the command line
 ```
 
+**Optional MCP step.** With an MCP gateway on the cluster, the last agent can make one real MCP
+tool call through it, authenticated with its own service account token:
+
+```bash
+./demo-trace.sh --user alice --mcp-tool openshift_pods_list_in_namespace --mcp-args '{"namespace":"$NS"}' \
+  agents/planner=Planner agents/researcher=Researcher
+```
+
+The trace then shows a `tools/call <tool>` span with the real duration and result
+(`demo.simulated=false`, `mcp.tool.is_error`, `gen_ai.tool.name`). The MCP server for Red Hat
+OpenShift runs the tool with the caller's token, so what the agent may see is decided by its own
+RBAC: the one identity check in the demo the platform itself enforces. Leave `DEMO_MCP_TOOL` unset
+and the step is skipped. `$NS` in the arguments becomes the agent's namespace.
+
 For agents that are already instrumented and expose HTTP, `./demo-trace.sh --user alice --entry-url
 https://<agent>` sends one request with a new trace and the user in baggage, and the real agents carry
 it on.

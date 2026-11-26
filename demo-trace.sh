@@ -20,7 +20,14 @@
 # Entry mode (--entry-url): sends one request to a real, instrumented agent with a new trace context
 # and user.id in W3C baggage, so the trace continues through the real agents.
 #
-# demo.env (optional, see demo.env.example): DEMO_USER, DEMO_AGENTS, IMAGE, OTLP_ENDPOINT.
+# Optional MCP step (--mcp-tool, or DEMO_MCP_TOOL in demo.env): the LAST agent makes one real MCP
+# tools/call through the MCP gateway, authenticated with its own service account token, and records
+# it as a "tools/call <tool>" span with the real duration and result (demo.simulated=false). Leave
+# it unset and the demo runs without MCP. --mcp-args (DEMO_MCP_ARGS) is the tool's JSON arguments;
+# "$NS" in it becomes the agent's namespace. DEMO_MCP_URL and DEMO_MCP_HOST point at the gateway
+# (defaults: the in-cluster gateway Service, Host mcp.<apps domain>).
+#
+# demo.env (optional, see demo.env.example): DEMO_USER, DEMO_AGENTS, DEMO_MCP_*, IMAGE, OTLP_ENDPOINT.
 # Command-line values win over demo.env.
 # --dry-run prints the hops and the pods it would create, and changes nothing.
 #
@@ -31,12 +38,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"; [ -f vars.env ] && { set -a; . ./vars.env; set +a; }
 [ -f demo.env ] && { set -a; . ./demo.env; set +a; }
-usage() { sed -n '2,29p' "$0"; }
+usage() { sed -n '2,36p' "$0"; }
 
 USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
+MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) USER_ID="$2"; shift 2 ;;
+    --mcp-tool) MCP_TOOL="$2"; shift 2 ;;
+    --mcp-args) MCP_ARGS="$2"; shift 2 ;;
     --entry-url) ENTRY_URL="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -52,6 +62,13 @@ OTLP="${OTLP_ENDPOINT:-http://otel-collector.${NS_TRACING}.svc.cluster.local:431
 IMAGE="${IMAGE:-registry.access.redhat.com/ubi9/python-312}"
 PIP="${PIP_PACKAGES:-opentelemetry-sdk opentelemetry-exporter-otlp-proto-http spiffe}"
 RUN_ID="$(date +%s)"
+MCP_URL="${DEMO_MCP_URL:-http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp}"
+MCP_HOST="${DEMO_MCP_HOST:-}"
+if [ -n "$MCP_TOOL" ] && [ -z "$MCP_HOST" ]; then
+  MCP_HOST="mcp.$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+fi
+python3 -c 'import json,sys; json.loads(sys.argv[1])' "$MCP_ARGS" 2>/dev/null \
+  || { echo "--mcp-args is not valid JSON: $MCP_ARGS" >&2; exit 2; }
 DEMO_T0="$(date +%s%N)"; DEMO_PACE="${DEMO_PACE:-1.0}"
 
 # One hop: read context from env, open a span as this agent, print the context for the next hop.
@@ -85,13 +102,72 @@ ctx = propagate.extract(carrier) if carrier else context.get_current()
 if not baggage.get_baggage("user.id", ctx):
     ctx = baggage.set_baggage("user.id", user, ctx)
 tok = context.attach(ctx)
+def mcp_call(ctx_for_headers):
+    """One real tools/call through the MCP gateway with this pod's service account token.
+    Returns (is_error, summary, result_bytes, http_status)."""
+    import urllib.request
+    url, host, tool = os.environ["MCP_URL"], os.environ["MCP_HOST"], os.environ["MCP_TOOL"]
+    args = json.loads(os.environ.get("MCP_ARGS") or "{}".replace("$NS", ""))
+    args = json.loads(json.dumps(args).replace("$NS", os.environ.get("NS", "")))
+    tok = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
+    trace_headers = {}; propagate.inject(trace_headers, context=ctx_for_headers)
+    sid = [None]
+    def rpc(body):
+        h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+             "Authorization": "Bearer " + tok, "Host": host, **trace_headers}
+        if sid[0]: h["Mcp-Session-Id"] = sid[0]
+        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=h, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                sid[0] = sid[0] or r.headers.get("Mcp-Session-Id")
+                raw, code = r.read().decode(), r.status
+        except urllib.error.HTTPError as e:
+            return e.code, None
+        data = next((l[5:].strip() for l in raw.splitlines() if l.startswith("data:")), raw.strip())
+        return code, (json.loads(data) if data else None)
+    code, _ = rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "demo-trace", "version": "1"}}})
+    if code != 200:
+        return True, "initialize failed: HTTP %s" % code, 0, code
+    rpc({"jsonrpc": "2.0", "method": "notifications/initialized"})
+    code, res = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": tool, "arguments": args}})
+    if code != 200 or not res:
+        return True, "tools/call failed: HTTP %s" % code, 0, code
+    if "error" in res:
+        return True, str(res["error"].get("message", res["error"]))[:200], 0, code
+    r = res.get("result", {})
+    text = " ".join(c.get("text", "") for c in r.get("content", []) if c.get("type") == "text")
+    return bool(r.get("isError")), text[:200].replace("\n", " "), len(json.dumps(r)), code
+
 tracer = trace.get_tracer("demo-trace")
 ids = {"user.id": baggage.get_baggage("user.id") or user, "spiffe.id": sid}
 span = tracer.start_span(f"{name}.handle", kind=SpanKind.SERVER, start_time=at(plan["start"]),
                          attributes={**ids, "demo.step": int(step)})
 sctx = trace.set_span_in_context(span)
 out = {}
+mcp_report = None
 for w in plan["steps"]:
+    if w.get("mcp") and os.environ.get("MCP_TOOL"):
+        # A real call: placed at the planned start, with its measured duration (clamped to the
+        # planned slot, so it stays inside its parent; the measured value is kept as an attribute).
+        from opentelemetry.trace import Status, StatusCode
+        tool = os.environ["MCP_TOOL"]
+        child = tracer.start_span("tools/call " + tool, context=sctx, kind=SpanKind.CLIENT,
+                                  start_time=at(w["start"]),
+                                  attributes={**ids, "demo.simulated": False, "mcp.method.name": "tools/call",
+                                              "gen_ai.tool.name": tool, "server.address": os.environ["MCP_HOST"]})
+        t = time.time()
+        is_err, summary, nbytes, code = mcp_call(trace.set_span_in_context(child, sctx))
+        ms = (time.time() - t) * 1000
+        child.set_attribute("mcp.tool.is_error", is_err)
+        child.set_attribute("mcp.result.bytes", nbytes)
+        child.set_attribute("http.response.status_code", int(code or 0))
+        child.set_attribute("demo.measured_duration_ms", round(ms, 1))
+        if is_err:
+            child.set_status(Status(StatusCode.ERROR, summary[:120]))
+        child.end(end_time=min(at(w["start"]) + int(ms * 1e6), at(w["end"])))
+        mcp_report = (tool, is_err, round(ms), summary)
+        continue
     kind = SpanKind.CLIENT if w.get("call") else SpanKind.INTERNAL
     child = tracer.start_span(w["name"], context=sctx, kind=kind, start_time=at(w["start"]),
                               attributes={**ids, "demo.simulated": True})
@@ -107,6 +183,8 @@ print("DEMO_TRACEPARENT=" + out.get("traceparent", ""))
 print("DEMO_BAGGAGE=" + out.get("baggage", ""))
 print("DEMO_TRACE_ID=" + tid)
 print("DEMO_SPIFFE_ID=" + sid)
+if mcp_report:
+    print("DEMO_MCP=%s|%s|%s|%s" % mcp_report)
 PY
 
 TRACEPARENT=""; BAGGAGE=""; TRACE_ID=""
@@ -114,15 +192,19 @@ TRACEPARENT=""; BAGGAGE=""; TRACE_ID=""
 # The timeline: one JSON plan per hop (offsets in seconds from DEMO_T0). Built from the last agent
 # back, because each agent's "call" step has to last as long as the next agent's whole span.
 plan_hops() {
-  DEMO_PACE="$DEMO_PACE" python3 -I -c '
+  DEMO_PACE="$DEMO_PACE" MCP_TOOL="$MCP_TOOL" python3 -I -c '
 import json, os, random, sys
 names, pace = sys.argv[1:], float(os.environ["DEMO_PACE"])
+use_mcp = bool(os.environ.get("MCP_TOOL"))
 r = lambda a, b: round(random.uniform(a, b) * pace, 3)
 def build(i):
     # plan for hop i starting at offset 0, and its duration
     t, steps = 0.05, []
+    last = i + 1 == len(names)
     for n, a, b in (("think", 1.2, 2.4), ("tool lookup", 0.6, 1.4)):
-        d = r(a, b); steps.append({"name": n, "start": t, "end": t + d}); t += d + 0.05
+        if n == "tool lookup" and last and use_mcp:
+            n, a, b = "mcp", 1.5, 2.0       # the real tools/call; its slot, not its duration
+        d = r(a, b); steps.append({"name": n, "start": t, "end": t + d, "mcp": n == "mcp"}); t += d + 0.05
     if i + 1 < len(names):
         sub, sd = build(i + 1)
         steps.append({"name": "call " + names[i + 1], "start": t, "end": t + sd + 0.2, "call": True,
@@ -146,6 +228,7 @@ for x in plans:
 
 if [ $DRY -eq 1 ]; then
   echo "Dry run: user.id=$USER_ID  collector=$OTLP  image=$IMAGE"
+  [ -n "$MCP_TOOL" ] && echo "  MCP: the last agent calls $MCP_TOOL $MCP_ARGS via $MCP_URL (Host $MCP_HOST)"
   if [ -n "$ENTRY_URL" ]; then echo "  would call $ENTRY_URL with traceparent + baggage user.id=$USER_ID"; exit 0; fi
   step=0
   for a in "${AGENTS[@]}"; do
@@ -175,10 +258,12 @@ else
     pod="demo-hop-${RUN_ID}-${step}"
     AGENT_NAME="$disp" STEP="$step" NS="$ns" SA="$sa" POD="$pod" IMAGE="$IMAGE" PIP="$PIP" OTLP="$OTLP" \
     USER_ID="$USER_ID" TRACEPARENT="$TRACEPARENT" BAGGAGE="$BAGGAGE" HOP_PY="$HOP_PY" \
-    DEMO_T0="$DEMO_T0" DEMO_PLAN="${PLANS[$((step - 1))]}" python3 -I -c '
+    DEMO_T0="$DEMO_T0" DEMO_PLAN="${PLANS[$((step - 1))]}" \
+    MCP_TOOL="$MCP_TOOL" MCP_ARGS="$MCP_ARGS" MCP_URL="$MCP_URL" MCP_HOST="$MCP_HOST" python3 -I -c '
 import json, os
 e = os.environ
-env = [{"name": k, "value": e[k]} for k in ("AGENT_NAME", "USER_ID", "STEP", "OTLP", "TRACEPARENT", "BAGGAGE", "HOP_PY", "DEMO_T0", "DEMO_PLAN")]
+env = [{"name": k, "value": e[k]} for k in ("AGENT_NAME", "USER_ID", "STEP", "OTLP", "TRACEPARENT", "BAGGAGE", "HOP_PY", "DEMO_T0", "DEMO_PLAN",
+                                      "MCP_TOOL", "MCP_ARGS", "MCP_URL", "MCP_HOST", "NS")]
 env += [{"name": "SPIFFE_ENDPOINT_SOCKET", "value": "unix:///spiffe-workload-api/spire-agent.sock"},
         {"name": "HOME", "value": "/tmp"}]
 print(json.dumps({"apiVersion": "v1", "kind": "Pod",
@@ -201,6 +286,11 @@ print(json.dumps({"apiVersion": "v1", "kind": "Pod",
     TRACE_ID=$(sed -n 's/^DEMO_TRACE_ID=//p' <<<"$out"); sid=$(sed -n 's/^DEMO_SPIFFE_ID=//p' <<<"$out")
     [ -n "$TRACEPARENT" ] || { echo "    hop failed:"; tail -5 <<<"$out" | sed 's/^/    /'; exit 1; }
     echo "    spiffe.id: $sid"
+    mcp=$(sed -n 's/^DEMO_MCP=//p' <<<"$out")
+    if [ -n "$mcp" ]; then
+      IFS='|' read -r mtool merr mms msum <<<"$mcp"
+      echo "    MCP tools/call $mtool via $MCP_HOST: $([ "$merr" = True ] && echo ERROR || echo ok) in ${mms} ms: ${msum:0:110}"
+    fi
   done
 fi
 
