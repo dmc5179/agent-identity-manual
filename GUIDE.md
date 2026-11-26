@@ -89,7 +89,8 @@ a confidential Keycloak client `devspaces` (redirect `<cheURL>/oauth/callback`, 
 `spec.networking.auth.oAuthClientName: devspaces`, `oAuthSecret: oauth-secret`,
 `identityProviderURL: <issuer>`, `gateway.oAuthProxy.cookieExpireSeconds: 300`, and the oauth-proxy
 env `OAUTH2_PROXY_CODE_CHALLENGE_METHOD=S256`. Dev Spaces, the DevWorkspace Operator and Web Terminal
-must be installed in one namespace.
+must be installed in one namespace. A workspace gets a kubeconfig with the user's own token, which
+isn't refreshed: `oc` in the workspace works for about 5 minutes after it starts (CRW-14511).
 
 ## 4. Models, OGX, agents (~30 min)
 
@@ -195,10 +196,11 @@ with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that 
 | Copied login command fails: `x509: certificate signed by unknown authority` from `oidc discovery` | Add `--oidc-certificate-authority <keycloak-ca>` (and `--callback-port 8080`); the console omits them (OCPBUGS-147680) |
 | Keycloak says "invalid parameter: redirect_url" after `oc login` | The `--callback-port` isn't a redirect URI on the CLI client: add `http://localhost:<port>` and `http://localhost:<port>/*` |
 | A second DevWorkspace Operator shows Failed (`InterOperatorGroupOwnerConflict`) | Web Terminal and Dev Spaces were installed in different namespaces. Both depend on the DevWorkspace Operator, so all three must share one namespace (Dev Spaces install guide; KB 6994906). Reinstall Web Terminal in Dev Spaces' namespace (Subscription name must stay `web-terminal`) |
-| Web Terminal stops working after 5 minutes | Its token isn't refreshed under external OIDC; reopen it (no fix yet) |
+| Web Terminal stops working after 5 minutes | Its token isn't refreshed under external OIDC; reopen it (no fix yet, WTO-660) |
 | MaaS key creation returns 500 | Authorino serving cert (RHOAIENG-103136): annotate its Service after Kuadrant reconciles, restart Authorino |
 | Dashboard can't create MaaS keys for Keycloak users | With OpenShift direct authentication (step 3), Gen AI studio → API keys works: tested on RHOAI 3.5.2, 2026-11-25. RHAIRFE-3346 reports it unsupported for external OIDC users; if you hit that, create keys with the MaaS API. An empty 503 from the MaaS gateway shows up here as "unexpected end of JSON input" (see the 503 row) |
-| Every MaaS request returns an empty 503 (`wasm_fail_stream` in the gateway log) | The gateway started before the Kuadrant operator after a restart and never loaded its Wasm plugin: `oc rollout restart deployments.apps/maas-default-gateway-openshift-default -n openshift-ingress` |
+| Every MaaS request returns an empty 503 (`wasm_fail_stream` in the gateway log) | The gateway's Envoy never loaded the Kuadrant Wasm plugin (it fails closed), seen after a restart and on a newly created gateway: `oc rollout restart deployments.apps/maas-default-gateway-openshift-default -n openshift-ingress` |
+| Requests through a Gateway other than MaaS (for example an MCP gateway) with a Kuadrant AuthPolicy all return 500; the Wasm log says "gRPC status code is not OK" | RHOAI turns on TLS for Authorino's gRPC port and patches only the MaaS gateway for it. Add an EnvoyFilter for your Gateway like `maas-default-gateway-authn-ssl` in `openshift-ingress` (RHOAIENG-103137) |
 | OGX pod crash-loops with `storage.backends.*_postgres` errors | The default distribution needs PostgreSQL env (10) |
 | Agent logs "Failed to export metrics/logs ... 404" | Collector takes traces only; 08 sets `OTEL_METRICS_EXPORTER`/`OTEL_LOGS_EXPORTER=none` |
 | Trace query to Tempo times out | Query through the gateway or the console; NetworkPolicies block direct access |

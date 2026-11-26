@@ -78,6 +78,12 @@ Notes:
 | `<Agent>.handle` | SERVER | `user.id`, `spiffe.id` (`spiffe://<trust-domain>/ns/<ns>/sa/<sa>`) |
 | steps inside it | INTERNAL / CLIENT | the same two, so any span can be filtered by user or agent |
 
+With the demo's optional MCP step, the last agent also records one real MCP call:
+
+| Span | Kind | Attributes |
+|---|---|---|
+| `tools/call <tool>` | CLIENT | `user.id`, `spiffe.id`, `mcp.method.name` (`tools/call`), `gen_ai.tool.name`, `server.address` (the MCP gateway host), `http.response.status_code`, `mcp.tool.is_error`, `mcp.result.bytes`, `demo.simulated=false`, `demo.measured_duration_ms`; status ERROR when the tool reports an error |
+
 W3C `traceparent` links an agent's call to the next agent or to OGX, so one trace ID covers the
 whole user → agent → agent → OGX → model chain. W3C `baggage` carries `user.id` between agents.
 
