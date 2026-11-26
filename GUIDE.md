@@ -185,6 +185,34 @@ Platform-verified identity on every step is a request to Red Hat.
 The probe pods install `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http` and `spiffe`
 with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that has them.
 
+## 8. MCP tools through the MCP gateway
+
+Red Hat Connectivity Link 1.5 ships the MCP gateway: agents call MCP servers through the cluster
+ingress instead of reaching each server directly, and every call is authenticated with the identity
+work in this guide.
+
+Register each server with an HTTPRoute plus an MCPServerRegistration, following the Connectivity
+Link 1.5 guide "Register MCP servers and create policies". Two details that guide does not
+underline:
+
+- The gateway's public listener and the internal `*.mcp.local` listener that the server routes
+  attach to must use the same port. The controller matches registrations to the
+  MCPGatewayExtension by listener port, and a mismatch leaves every registration NotReady.
+- A listener without a hostname needs `spec.publicHost` on the MCPGatewayExtension, or the
+  gateway cannot advertise the server's public URL.
+
+With OpenShift AI on the cluster, give the gateway TLS to Authorino with an EnvoyFilter like
+`maas-default-gateway-authn-ssl`; without it, every authenticated request returns 500
+(troubleshooting has the row). A Kuadrant AuthPolicy with `kubernetesTokenReview` on the gateway
+then accepts both kinds of caller this guide creates: agent ServiceAccount tokens and Keycloak
+user tokens under OpenShift direct authentication.
+
+The MCP server for Red Hat OpenShift is a worked example (OpenShift 4.22 "AI applications";
+Technology Preview, Helm chart `redhat-openshift-mcp-server`). Install it read-only, denying
+Secrets, with no public Route. It runs each tool with the caller's own token, so OpenShift RBAC
+decides per user and per agent: an admin listed pods, a user without rights got `forbidden`. The
+demo's `--mcp-tool` option shows this in a trace (7).
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
@@ -201,6 +229,8 @@ with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that 
 | Dashboard can't create MaaS keys for Keycloak users | With OpenShift direct authentication (step 3), Gen AI studio → API keys works: tested on RHOAI 3.5.2, 2026-11-25. RHAIRFE-3346 reports it unsupported for external OIDC users; if you hit that, create keys with the MaaS API. An empty 503 from the MaaS gateway shows up here as "unexpected end of JSON input" (see the 503 row) |
 | Every MaaS request returns an empty 503 (`wasm_fail_stream` in the gateway log) | The gateway's Envoy never loaded the Kuadrant Wasm plugin (it fails closed), seen after a restart and on a newly created gateway: `oc rollout restart deployments.apps/maas-default-gateway-openshift-default -n openshift-ingress` |
 | Requests through a Gateway other than MaaS (for example an MCP gateway) with a Kuadrant AuthPolicy all return 500; the Wasm log says "gRPC status code is not OK" | RHOAI turns on TLS for Authorino's gRPC port and patches only the MaaS gateway for it. Add an EnvoyFilter for your Gateway like `maas-default-gateway-authn-ssl` in `openshift-ingress` (RHOAIENG-103137) |
+| MCP server registrations NotReady: `no matching mcpgatewayextensions for attached listener` | The public listener and the internal `*.mcp.local` listener do not share the same port; the controller matches registrations to the MCPGatewayExtension by listener port (8) |
+| `tools/call` fails with: `Kagenti MCP Broker does not forward tool calls` | The extension's router EnvoyFilter is missing (the extension is not Ready) or stale after a listener port change: delete it so the controller recreates it (8) |
 | OGX pod crash-loops with `storage.backends.*_postgres` errors | The default distribution needs PostgreSQL env (10) |
 | Agent logs "Failed to export metrics/logs ... 404" | Collector takes traces only; 08 sets `OTEL_METRICS_EXPORTER`/`OTEL_LOGS_EXPORTER=none` |
 | Trace query to Tempo times out | Query through the gateway or the console; NetworkPolicies block direct access |
