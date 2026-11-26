@@ -26,5 +26,16 @@ chk "TempoStack agents Ready" "oc get tempostacks.tempo.grafana.com agents -n ${
 chk "OpenTelemetry collector running" "oc get deploy otel-collector -n ${TRACING_NAMESPACE:-tracing} -o jsonpath='{.status.readyReplicas}' | grep -q 1"
 chk "Tracing UI plugin Available" "oc get uiplugins.observability.openshift.io distributed-tracing -o jsonpath='{.status.conditions[?(@.type==\"Available\")].status}' | grep -q True"
 
+echo "MCP gateway (optional)"
+url="${MCP_URL:-http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp}"
+host="${MCP_HOST:-mcp.$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}')}"
+if [ "$(oc get mcpgatewayextensions.mcp.kuadrant.io -A --no-headers 2>/dev/null | wc -l)" -eq 0 ]; then
+  echo "    not installed"
+else
+  st=$(oc get mcpserverregistrations.mcp.kuadrant.io -A -o jsonpath='{range .items[*]}{.status.conditions[?(@.type=="Ready")].status}{"\n"}{end}' 2>/dev/null)
+  echo "    MCPServerRegistrations: $(grep -c . <<<"$st" || true), Ready: $(grep -c '^True$' <<<"$st" || true)"
+  echo "    gateway $url (Host $host) is an in-cluster URL, not reachable from this workstation"
+fi
+
 echo "OGX"
 oc get ogxservers.ogx.io -A --no-headers 2>/dev/null | awk '{print "    "$1"/"$2" "$3}' || true
