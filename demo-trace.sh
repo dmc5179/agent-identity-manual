@@ -26,6 +26,8 @@
 # it unset and the demo runs without MCP. --mcp-args (DEMO_MCP_ARGS) is the tool's JSON arguments;
 # "$NS" in it becomes the agent's namespace. DEMO_MCP_URL and DEMO_MCP_HOST point at the gateway
 # (defaults: the in-cluster gateway Service, Host mcp.<apps domain>).
+# --mcp-list prints the tools the MCP gateway offers (one DEMO_TOOL=<name> line each) as the FIRST
+# agent's service account, in one short-lived pod, and exits without tracing.
 #
 # demo.env (optional, see demo.env.example): DEMO_USER, DEMO_AGENTS, DEMO_MCP_*, IMAGE, OTLP_ENDPOINT.
 # Command-line values win over demo.env.
@@ -38,14 +40,15 @@
 set -euo pipefail
 cd "$(dirname "$0")"; [ -f vars.env ] && { set -a; . ./vars.env; set +a; }
 [ -f demo.env ] && { set -a; . ./demo.env; set +a; }
-usage() { sed -n '2,36p' "$0"; }
+usage() { sed -n '2,39p' "$0"; }
 
 USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
-MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"
+MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) USER_ID="$2"; shift 2 ;;
     --mcp-tool) MCP_TOOL="$2"; shift 2 ;;
+    --mcp-list) MCP_LIST=1; shift ;;
     --mcp-args) MCP_ARGS="$2"; shift 2 ;;
     --entry-url) ENTRY_URL="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
@@ -64,7 +67,7 @@ PIP="${PIP_PACKAGES:-opentelemetry-sdk opentelemetry-exporter-otlp-proto-http sp
 RUN_ID="$(date +%s)"
 MCP_URL="${DEMO_MCP_URL:-http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp}"
 MCP_HOST="${DEMO_MCP_HOST:-}"
-if [ -n "$MCP_TOOL" ] && [ -z "$MCP_HOST" ]; then
+if [ -z "$MCP_HOST" ] && { [ -n "$MCP_TOOL" ] || [ -n "$MCP_LIST" ]; }; then
   MCP_HOST="mcp.$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
 fi
 python3 -c 'import json,sys; json.loads(sys.argv[1])' "$MCP_ARGS" 2>/dev/null \
@@ -81,7 +84,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from spiffe import WorkloadApiClient
 
-import json
+import json, sys, urllib.request
 from opentelemetry.trace import SpanKind
 name, user, step = os.environ["AGENT_NAME"], os.environ["USER_ID"], os.environ["STEP"]
 plan, t0 = json.loads(os.environ["DEMO_PLAN"]), int(os.environ["DEMO_T0"])
@@ -102,35 +105,38 @@ ctx = propagate.extract(carrier) if carrier else context.get_current()
 if not baggage.get_baggage("user.id", ctx):
     ctx = baggage.set_baggage("user.id", user, ctx)
 tok = context.attach(ctx)
+def mcp_rpc(body, tok, url, host, trace_headers=None, sid=None):
+    """One POST to the MCP gateway; returns (http_status, parsed response or None)."""
+    h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
+         "Authorization": "Bearer " + tok, "Host": host, **(trace_headers or {})}
+    if sid and sid[0]: h["Mcp-Session-Id"] = sid[0]
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=h, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            if sid is not None: sid[0] = sid[0] or r.headers.get("Mcp-Session-Id")
+            raw, code = r.read().decode(), r.status
+    except urllib.error.HTTPError as e:
+        return e.code, None
+    data = next((l[5:].strip() for l in raw.splitlines() if l.startswith("data:")), raw.strip())
+    return code, (json.loads(data) if data else None)
+
 def mcp_call(ctx_for_headers):
     """One real tools/call through the MCP gateway with this pod's service account token.
     Returns (is_error, summary, result_bytes, http_status)."""
-    import urllib.request
     url, host, tool = os.environ["MCP_URL"], os.environ["MCP_HOST"], os.environ["MCP_TOOL"]
     args = json.loads(os.environ.get("MCP_ARGS") or "{}".replace("$NS", ""))
     args = json.loads(json.dumps(args).replace("$NS", os.environ.get("NS", "")))
     tok = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
     trace_headers = {}; propagate.inject(trace_headers, context=ctx_for_headers)
     sid = [None]
-    def rpc(body):
-        h = {"Content-Type": "application/json", "Accept": "application/json, text/event-stream",
-             "Authorization": "Bearer " + tok, "Host": host, **trace_headers}
-        if sid[0]: h["Mcp-Session-Id"] = sid[0]
-        req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=h, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=30) as r:
-                sid[0] = sid[0] or r.headers.get("Mcp-Session-Id")
-                raw, code = r.read().decode(), r.status
-        except urllib.error.HTTPError as e:
-            return e.code, None
-        data = next((l[5:].strip() for l in raw.splitlines() if l.startswith("data:")), raw.strip())
-        return code, (json.loads(data) if data else None)
-    code, _ = rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
-        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "demo-trace", "version": "1"}}})
+    code, _ = mcp_rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "demo-trace", "version": "1"}}},
+        tok, url, host, trace_headers, sid)
     if code != 200:
         return True, "initialize failed: HTTP %s" % code, 0, code
-    rpc({"jsonrpc": "2.0", "method": "notifications/initialized"})
-    code, res = rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": tool, "arguments": args}})
+    mcp_rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}, tok, url, host, trace_headers, sid)
+    code, res = mcp_rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": tool, "arguments": args}},
+                        tok, url, host, trace_headers, sid)
     if code != 200 or not res:
         return True, "tools/call failed: HTTP %s" % code, 0, code
     if "error" in res:
@@ -138,6 +144,28 @@ def mcp_call(ctx_for_headers):
     r = res.get("result", {})
     text = " ".join(c.get("text", "") for c in r.get("content", []) if c.get("type") == "text")
     return bool(r.get("isError")), text[:200].replace("\n", " "), len(json.dumps(r)), code
+
+def mcp_list():
+    """initialize, then tools/list; print one DEMO_TOOL=<name> line per tool."""
+    url, host = os.environ["MCP_URL"], os.environ["MCP_HOST"]
+    tok = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
+    sid = [None]
+    code, _ = mcp_rpc({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+        "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "demo-trace", "version": "1"}}},
+        tok, url, host, sid=sid)
+    if code != 200:
+        sys.exit("initialize failed: HTTP %s" % code)
+    mcp_rpc({"jsonrpc": "2.0", "method": "notifications/initialized"}, tok, url, host, sid=sid)
+    code, res = mcp_rpc({"jsonrpc": "2.0", "id": 2, "method": "tools/list"}, tok, url, host, sid=sid)
+    if code != 200 or not res:
+        sys.exit("tools/list failed: HTTP %s" % code)
+    if "error" in res:
+        sys.exit(str(res["error"].get("message", res["error"]))[:200])
+    for t in res.get("result", {}).get("tools", []):
+        print("DEMO_TOOL=" + t.get("name", ""))
+
+if os.environ.get("MCP_LIST"):
+    mcp_list(); raise SystemExit(0)
 
 tracer = trace.get_tracer("demo-trace")
 ids = {"user.id": baggage.get_baggage("user.id") or user, "spiffe.id": sid}
@@ -229,6 +257,7 @@ for x in plans:
 if [ $DRY -eq 1 ]; then
   echo "Dry run: user.id=$USER_ID  collector=$OTLP  image=$IMAGE"
   [ -n "$MCP_TOOL" ] && echo "  MCP: the last agent calls $MCP_TOOL $MCP_ARGS via $MCP_URL (Host $MCP_HOST)"
+  [ -n "$MCP_LIST" ] && { echo "  would list the MCP gateway's tools as the first agent's service account via $MCP_URL (Host $MCP_HOST)"; exit 0; }
   if [ -n "$ENTRY_URL" ]; then echo "  would call $ENTRY_URL with traceparent + baggage user.id=$USER_ID"; exit 0; fi
   step=0
   for a in "${AGENTS[@]}"; do
@@ -259,11 +288,11 @@ else
     AGENT_NAME="$disp" STEP="$step" NS="$ns" SA="$sa" POD="$pod" IMAGE="$IMAGE" PIP="$PIP" OTLP="$OTLP" \
     USER_ID="$USER_ID" TRACEPARENT="$TRACEPARENT" BAGGAGE="$BAGGAGE" HOP_PY="$HOP_PY" \
     DEMO_T0="$DEMO_T0" DEMO_PLAN="${PLANS[$((step - 1))]}" \
-    MCP_TOOL="$MCP_TOOL" MCP_ARGS="$MCP_ARGS" MCP_URL="$MCP_URL" MCP_HOST="$MCP_HOST" python3 -I -c '
+    MCP_TOOL="$MCP_TOOL" MCP_ARGS="$MCP_ARGS" MCP_URL="$MCP_URL" MCP_HOST="$MCP_HOST" MCP_LIST="$MCP_LIST" python3 -I -c '
 import json, os
 e = os.environ
 env = [{"name": k, "value": e[k]} for k in ("AGENT_NAME", "USER_ID", "STEP", "OTLP", "TRACEPARENT", "BAGGAGE", "HOP_PY", "DEMO_T0", "DEMO_PLAN",
-                                      "MCP_TOOL", "MCP_ARGS", "MCP_URL", "MCP_HOST", "NS")]
+                                      "MCP_TOOL", "MCP_ARGS", "MCP_URL", "MCP_HOST", "NS", "MCP_LIST")]
 env += [{"name": "SPIFFE_ENDPOINT_SOCKET", "value": "unix:///spiffe-workload-api/spire-agent.sock"},
         {"name": "HOME", "value": "/tmp"}]
 print(json.dumps({"apiVersion": "v1", "kind": "Pod",
@@ -282,6 +311,11 @@ print(json.dumps({"apiVersion": "v1", "kind": "Pod",
     done
     out=$(oc logs "$pod" -n "$ns" 2>&1 || true)
     oc delete pod "$pod" -n "$ns" --wait=false >/dev/null 2>&1 || true
+    if [ -n "$MCP_LIST" ]; then
+      grep -q '^DEMO_TOOL=' <<<"$out" || { echo "    tools/list failed:"; tail -5 <<<"$out" | sed 's/^/    /'; exit 1; }
+      sed -n 's/^DEMO_TOOL=/    /p' <<<"$out"
+      exit 0
+    fi
     TRACEPARENT=$(sed -n 's/^DEMO_TRACEPARENT=//p' <<<"$out"); BAGGAGE=$(sed -n 's/^DEMO_BAGGAGE=//p' <<<"$out")
     TRACE_ID=$(sed -n 's/^DEMO_TRACE_ID=//p' <<<"$out"); sid=$(sed -n 's/^DEMO_SPIFFE_ID=//p' <<<"$out")
     [ -n "$TRACEPARENT" ] || { echo "    hop failed:"; tail -5 <<<"$out" | sed 's/^/    /'; exit 1; }
