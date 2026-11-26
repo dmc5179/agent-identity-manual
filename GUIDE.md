@@ -78,6 +78,33 @@ users, or add the CAs to their system trust store.
 If the dashboard login loops or uses an old secret: `oc delete secret kube-auth-proxy-creds -n
 openshift-ingress`, wait for it to return, `oc rollout restart deploy/kube-auth-proxy -n openshift-ingress`.
 
+**Groups and access.** After the switch there are no OpenShift `User` or `Group` objects: group
+membership comes only from the token's `groups` claim, so `oc get groups` no longer tells you who is in
+what. RoleBindings and ClusterRoleBindings whose subject is a Group keep working only when a Keycloak
+group of exactly that name exists and holds the users (04 maps the claim with no prefix, and the realm's
+group mapper has full path off, so `maas-users` stays `maas-users`). Before the change window, list every
+binding to a Group and create those groups in Keycloak with their members:
+
+```bash
+oc get clusterrolebindings,rolebindings -A -o jsonpath='{range .items[*]}{.metadata.namespace}/{.metadata.name}: {.subjects[?(@.kind=="Group")].name}{"\n"}{end}' \
+  | grep -v ': $' | grep -v 'system:'
+```
+Groups that came from an htpasswd provider or an LDAP group sync
+stop applying the moment the switch completes. A user's own name keeps matching because 04 uses
+`preferred_username` with no prefix.
+
+**Other apps that sign in through OpenShift.** Anything that uses an OpenShift OAuth client or an
+oauth-proxy sidecar stops at a login page after the switch, because there is no OAuth server to send it
+to. List them before the window (`oc get oauthclients`, and Deployments with an `oauth-proxy`
+container) and move each one to its own Keycloak client. Two common ones: Open WebUI has native OIDC
+(`OPENID_PROVIDER_URL`, `OAUTH_CLIENT_ID`, a groups claim for roles), and OpenShift GitOps cannot use
+Dex's OpenShift connector any more: set `spec.oidcConfig` on the ArgoCD CR against Keycloak and remove
+`spec.sso` (the two together fail validation). Keep the Argo CD admin password until Keycloak sign-in is
+proven. Dev Spaces follows.
+
+**OpenShift Lightspeed** needs each user's uid to be a UUID (OCPBUGS-141930). Keycloak's `sub` claim
+is one, so the default mapping works; do not map the uid to another claim.
+
 ### Dev Spaces (if installed)
 
 Dev Spaces signs in through the OpenShift OAuth server by default, so after step 3 its login fails until
@@ -160,6 +187,10 @@ cp demo.env.example demo.env && vi demo.env       # DEMO_USER and DEMO_AGENTS (n
 ./demo-trace.sh --user bob agents/planner=Planner agents/researcher=Researcher   # or on the command line
 ```
 
+In the console, open **Observe → Traces**, choose the TempoStack and tenant, and widen the time range
+if the trace is not listed: the default window can miss a trace made a few minutes earlier, and a
+trace from an earlier run only shows with a range that covers it (for example "Last 24 hours").
+
 **Optional MCP step.** With an MCP gateway on the cluster, the last agent can make one real MCP
 tool call through it, authenticated with its own service account token:
 
@@ -213,6 +244,12 @@ Secrets, with no public Route. It runs each tool with the caller's own token, so
 decides per user and per agent: an admin listed pods, a user without rights got `forbidden`. The
 demo's `--mcp-tool` option shows this in a trace (7).
 
+The gateway lists each server's tools only to clients whose MCP protocol version that server
+supports, and it reads a server's versions from its handshake. A server that answers the handshake
+in only one version (for example the Red Hat Offline Knowledge Portal MCP server) disappears from the
+tool list of clients on the other version. Set `spec.supportedProtocolVersions` on its
+MCPServerRegistration to the versions it really serves.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |
@@ -231,6 +268,9 @@ demo's `--mcp-tool` option shows this in a trace (7).
 | Requests through a Gateway other than MaaS (for example an MCP gateway) with a Kuadrant AuthPolicy all return 500; the Wasm log says "gRPC status code is not OK" | RHOAI turns on TLS for Authorino's gRPC port and patches only the MaaS gateway for it. Add an EnvoyFilter for your Gateway like `maas-default-gateway-authn-ssl` in `openshift-ingress` (RHOAIENG-103137) |
 | MCP server registrations NotReady: `no matching mcpgatewayextensions for attached listener` | The public listener and the internal `*.mcp.local` listener do not share the same port; the controller matches registrations to the MCPGatewayExtension by listener port (8) |
 | `tools/call` fails with: `Kagenti MCP Broker does not forward tool calls` | The extension's router EnvoyFilter is missing (the extension is not Ready) or stale after a listener port change: delete it so the controller recreates it (8) |
+| A registered MCP server's tools are missing from `tools/list` for some clients | The gateway partitions tools by MCP protocol version; set `spec.supportedProtocolVersions` on the server's MCPServerRegistration (8) |
+| Users lose access they had through a Group after the switch | Group membership now comes only from the token's `groups` claim: create the Keycloak group with the same name and add the users (3) |
+| An app shows a login page that never completes after the switch | It uses an OpenShift OAuth client or oauth-proxy; give it its own Keycloak client (3) |
 | OGX pod crash-loops with `storage.backends.*_postgres` errors | The default distribution needs PostgreSQL env (10) |
 | Agent logs "Failed to export metrics/logs ... 404" | Collector takes traces only; 08 sets `OTEL_METRICS_EXPORTER`/`OTEL_LOGS_EXPORTER=none` |
 | Trace query to Tempo times out | Query through the gateway or the console; NetworkPolicies block direct access |
