@@ -7,7 +7,8 @@ Cluster Observability Operator and OpenShift Service Mesh 3. No AutoShift, no He
 **Start with [GUIDE.md](GUIDE.md)**, which has the steps, commands, checks and troubleshooting. Helpers: `render.sh` (fills
 `vars.env` into a file, then prints, dry-runs or applies it), `verify.sh` (one line per component), `trace-query.sh`
 (prints one trace with the user and SPIFFE ID on each hop), `demo-trace.sh` (a fresh user → agent → agent trace
-for any agents you name).
+for any agents you name, optionally with a real MCP tool call). [TRACE-FORMAT.md](TRACE-FORMAT.md) describes
+the traces on the wire, for a team building alerts or dashboards on them.
 
 Not perfect, a starting point. Each file says what it does, links the Red Hat doc, and lists the known
 issues that affect it.
