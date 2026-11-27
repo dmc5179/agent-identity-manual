@@ -8,7 +8,9 @@ Cluster Observability Operator and OpenShift Service Mesh 3. No AutoShift, no He
 `vars.env` into a file, then prints, dry-runs or applies it), `verify.sh` (one line per component), `trace-query.sh`
 (prints one trace with the user and SPIFFE ID on each hop), `demo-trace.sh` (a fresh user → agent → agent trace
 for any agents you name, optionally with a real MCP tool call), `ogx-token.sh` (the Keycloak user
-token with the `ogx-api` audience OGX requires, for the demo's OGX hop). [TRACE-FORMAT.md](TRACE-FORMAT.md) describes
+token with the `ogx-api` audience OGX requires, for the demo's OGX hop), and `demo-run.sh` (the
+whole demo in one command: pre-flight, the agent chain, the contrast run, the OGX hop, and a summary
+with the trace IDs). [TRACE-FORMAT.md](TRACE-FORMAT.md) describes
 the traces on the wire, for a team building alerts or dashboards on them.
 
 Not perfect, a starting point. Each file says what it does, links the Red Hat doc, and lists the known
@@ -78,6 +80,7 @@ files: each file gives the `oc create secret` command.
 | 07, 08, 09 | Applied on our lab 2026-11-24 (Tempo operator 0.22.0-5, OTel 0.158, COO 1.5.5): a trace showed user -> agent A -> agent B with both SPIFFE IDs and the user carried in baggage |
 | 13 | From the Red Hat docs only; Service Mesh is not on our lab |
 | `demo-trace.sh` MCP step | Run on the lab 2026-11-25 with and without `--mcp-tool`: the last agent's `tools/call` through the Connectivity Link 1.5 MCP gateway to the MCP server for Red Hat OpenShift, authenticated as the agent's service account; the server applied the agent's own RBAC |
+| `demo-run.sh` | Verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, and the step flow (full run, `--dry-run`, `--skip-ogx`, `--step 3`, a failing step) against stub helpers. Not yet run against the lab |
 | TRACE-FORMAT.md | OTLP structure from a real trace read back from Tempo; OGX span names read from the OGX 3.5.2 server image and confirmed against live OGX traces (2026-11-27); metric names read from the image |
 
 ## Sources

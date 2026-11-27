@@ -211,6 +211,13 @@ tool lookup, call the next agent, write answer) on a staged timeline of a few se
 console's timeline view reads like a real request. Those steps carry `demo.simulated=true`; set
 `DEMO_PACE=2` to double the timing.
 
+`demo-run.sh` runs the whole demo in one command, in presentation order: pre-flight (`verify.sh`,
+then a `demo-trace.sh --dry-run`), the chain, the contrast run when `DEMO_MCP_CONTRAST` is set, the
+OGX hop when `DEMO_OGX_URL` is set, and a summary table with every trace ID. Settings come from
+`demo.env`; the summary also prints the console hint, the TempoStack and tenant to open, and the
+TraceQL tips below. `--pause` waits for Enter between steps while presenting, `--step N` runs one
+step while rehearsing one part, and `--dry-run` prints the plan of every step without creating pods.
+
 ```bash
 cp demo.env.example demo.env && vi demo.env       # DEMO_USER and DEMO_AGENTS (namespace/serviceaccount=Name)
 ./demo-trace.sh --dry-run                          # shows the hops; checks the service accounts exist
