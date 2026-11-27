@@ -138,6 +138,9 @@ vi 06-maas-access.yaml                             # set <model> and <model-ns>
 ./render.sh 12-example-agent.yaml --apply          # replace the image with your agent
 ```
 
+When auth is on, OGX (10-ogx.yaml) accepts only Keycloak tokens whose `aud` claim includes the
+`ogx-api` audience; how to mint one for the demo is in section 5.
+
 Optional: `11-authpolicy-agent-or-user.yaml` (gateway accepts a Keycloak user OR a SPIRE agent) and
 `13-service-mesh.yaml` (read it fully first: it can break OpenShift's Gateway API).
 
@@ -246,10 +249,16 @@ DEMO_OGX_TOKEN=<keycloak-user-token> ./demo-trace.sh --user alice --ogx-url http
   --ogx-mcp agents/planner=Planner agents/researcher=Researcher
 ```
 
-The token must be one OGX accepts: with `AUTH_ISSUER` set (10-ogx.yaml), a Keycloak token carrying
-the `ogx-api` audience — the agent's service account token will not work. Get one with
-`scripts/lib-oc-token.sh` in the cluster repository, or your Keycloak token endpoint, and pass it
-through `DEMO_OGX_TOKEN`; it is never printed. Without it, an OGX with auth on refuses the request
+The token must be one OGX accepts: with `AUTH_ISSUER` and `AUTH_AUDIENCE` set (10-ogx.yaml), OGX
+accepts only Keycloak tokens whose `aud` claim includes the `ogx-api` audience — the agent's
+service account token will not work. The realm template (00-keycloak-realm-clients.json) provides
+that audience through an optional client scope named `ogx-api`: the scope adds `ogx-api` to `aud`
+when, and only when, the client asks for scope `openid ogx-api`, so ordinary sign-in tokens stay
+unchanged. Mint `DEMO_OGX_TOKEN` as a user token requested with scope `openid ogx-api`: a direct
+request to the realm's token endpoint, in the shape `scripts/lib-oc-token.sh` (cluster repository)
+makes, with the extra scope; that script's plain `openid` token does not carry the audience. Pass
+the token through `DEMO_OGX_TOKEN`; it is never printed. Without it, an OGX with auth on refuses
+the request
 with 401 and the span shows the refusal, which is a useful negative case. `--ogx-mcp`
 (`DEMO_OGX_MCP=1`) hands OGX the MCP gateway as a tool server, so OGX produces `list_mcp_tools` and
 `invoke_mcp_tool` spans in the same trace; OGX's service account then needs the gateway RBAC the

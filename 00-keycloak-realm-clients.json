@@ -6,6 +6,7 @@
     "groups mapper: full.path=false so the claim is 'maas-users', not '/maas-users'.",
     "argocd: no PKCE requirement - Argo CD's server-side flow sends no code_challenge_method, so setting one fails every sign-in. Its groups claim comes from the groups client scope, which Argo CD requests by name; a realm without that scope rejects the sign-in.",
     "Audience mappers: the API server (04) accepts tokens whose aud contains a listed client; OGX (10) checks KEYCLOAK_OGX_AUDIENCE.",
+    "ogx-api: an optional client scope of the CLI client (verified on a test realm 2026-11). OGX accepts only tokens whose aud includes KEYCLOAK_OGX_AUDIENCE, and the scope's audience mapper adds that audience when, and only when, the caller asks for scope 'openid ogx-api' - so plain sign-in tokens are unchanged. The CLI client carries no per-client ogx audience mapper; the scope is its only source.",
     "Token lifespan: 5 minutes is fine, but the RHOAI gateway cookie.refresh must be lower (05).",
     "Agent acting for a user: Keycloak standard token exchange (RFC 8693) on the agent's client. Not shown; no Red Hat-documented pattern with ZTWIM yet (RHAISTRAT-2932). If you enable it, use RHBK 26.6.z; long exchange chains fail on older builds (RHBK-3492)."
   ],
@@ -31,10 +32,9 @@
       "attributes": {"pkce.code.challenge.method": "S256"},
       "protocolMappers": [
         {"name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
-         "config": {"claim.name": "groups", "full.path": "false", "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}},
-        {"name": "aud-ogx", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
-         "config": {"included.custom.audience": "${KEYCLOAK_OGX_AUDIENCE}", "id.token.claim": "false", "access.token.claim": "true"}}
-      ]
+         "config": {"claim.name": "groups", "full.path": "false", "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}}
+      ],
+      "optionalClientScopes": ["ogx-api"]
     },
     {
       "clientId": "${KEYCLOAK_GATEWAY_CLIENT}",
@@ -70,6 +70,15 @@
       "protocolMappers": [
         {"name": "groups", "protocol": "openid-connect", "protocolMapper": "oidc-group-membership-mapper",
          "config": {"claim.name": "groups", "full.path": "false", "id.token.claim": "true", "access.token.claim": "true", "userinfo.token.claim": "true"}}
+      ]
+    },
+    {
+      "name": "ogx-api",
+      "protocol": "openid-connect",
+      "attributes": {"include.in.token.scope": "true", "display.on.consent.screen": "false"},
+      "protocolMappers": [
+        {"name": "ogx-api-audience", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper",
+         "config": {"included.custom.audience": "${KEYCLOAK_OGX_AUDIENCE}", "id.token.claim": "false", "access.token.claim": "true"}}
       ]
     }
   ],
