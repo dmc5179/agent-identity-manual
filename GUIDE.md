@@ -334,6 +334,20 @@ span attributes.
 | The refused call | `{ span.mcp.tool.is_error = true }` | The contrast account's tool call, refused for lack of RBAC; the one span that must show an error. |
 | Slow spans | `{ duration > 5s }` | Spans longer than five seconds. Without tools an OGX request takes about 4.7 s, so with a tool call (15-17 s) its SERVER span is the match. |
 
+### Dashboards for the demo
+
+`14-console-dashboards.yaml` adds two dashboards for the numbers behind the traces. Run its five
+commented patches (DSCInitialization, OdhDashboardConfig, Kuadrant, MaaSTenantConfig, the Perses
+UIPlugin), then `./render.sh 14-console-dashboards.yaml --apply`. The DSCInitialization patch adds a
+Prometheus to `redhat-ods-monitoring`: check worker CPU first; `replicas: 1` halves the cost.
+
+| Where the audience looks | What it shows |
+|---|---|
+| RHOAI dashboard, Observe & monitor → Dashboard → Usage | MaaS usage (Technology Preview): active users, success rate, token consumption, total and rate-limited requests per model |
+| Console, Observe → Dashboards (Perses) | The `agent-gateways` dashboard: MCP gateway and MaaS requests by response code, Authorino results (OK, UNAUTHENTICATED, PERMISSION_DENIED), Kuadrant allowed and denied |
+
+With none of it, paste the file's four queries into **Observe → Metrics**. File 14 lists them.
+
 ## 8. MCP tools through the MCP gateway
 
 Red Hat Connectivity Link 1.5 ships the MCP gateway: agents call MCP servers through the cluster

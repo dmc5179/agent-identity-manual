@@ -49,6 +49,7 @@ issues that affect it.
 | 11 | `11-authpolicy-agent-or-user.yaml` (optional) | 2, RHCL, an HTTPRoute | no |
 | 12 | `12-example-agent.yaml` | 3, 8 | no |
 | 13 | `13-service-mesh.yaml` (optional) | see the file: read before applying | can break Gateway API |
+| 14 | `14-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
 
 ZTWIM first, then SPIRE, as SPIRE reads the trust domain and cluster name from the ZTWIM resource.
 If you plan to use SPIRE as the Service Mesh CA (13), set `CREATE_ONLY_MODE=true` on the ZTWIM
@@ -84,6 +85,7 @@ files: each file gives the `oc create secret` command.
 | `demo-trace.sh` MCP step | Run on the lab 2026-11-25 with and without `--mcp-tool`: the last agent's `tools/call` through the Connectivity Link 1.5 MCP gateway to the MCP server for Red Hat OpenShift, authenticated as the agent's service account; the server applied the agent's own RBAC |
 | `demo-run.sh` | Verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, and the step flow (full run, `--dry-run`, `--skip-ogx`, `--step 3`, a failing step) against stub helpers. Not yet run against the lab |
 | TRACE-FORMAT.md | OTLP structure from a real trace read back from Tempo; OGX span names read from the OGX 3.5.2 server image and confirmed against live OGX traces (2026-11-27); metric names read from the image |
+| 14 | Patch targets and fields from the RHOAI 3.5 docs and `oc explain` on 3.5.2; the four queries are metrics that carried data on the lab's user-workload monitoring (2026-11-27). Not applied: copy the datasource from `dashboard-3-maas-usage-admin` first (the file says how) |
 
 ## Sources
 
@@ -91,5 +93,5 @@ files: each file gives the `oc create secret` command.
 - OCP 4.22 *Authentication and authorization*, ch. 8 (direct external OIDC)
 - RHOAI 3.5 *Administer OpenShift AI*, ch. 10; *Govern LLM access with Models-as-a-Service*; *Build
   AI/Agentic Applications with OGX*
-- Red Hat build of OpenTelemetry, Tempo, Cluster Observability Operator, OSSM 3 docs (see 07–09, 13)
+- Red Hat build of OpenTelemetry, Tempo, Cluster Observability Operator, OSSM 3 docs (see 07–09, 13, 14)
 - Red Hat Jira, swept 2026-11-24 for known issues (cited in each file)

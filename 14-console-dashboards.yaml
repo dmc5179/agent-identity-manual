@@ -1,0 +1,165 @@
+# Step 14 (OPTIONAL, demo day): usage and enforcement dashboards to show beside the traces.
+# What it gives:
+#   - RHOAI's MaaS observability dashboard (Technology Preview): in the RHOAI dashboard, Observe &
+#     monitor -> Dashboard -> Usage. RHOAI creates it (dashboard-3-maas-usage-admin in
+#     redhat-ods-monitoring: active users, success rate, token consumption, total requests, total
+#     rate limited); patches 1, 2 and 4 turn the tab on and feed it.
+#   - agent-gateways, the PersesDashboard below: one small console dashboard (Observe -> Dashboards)
+#     for the enforcement side of the demo, so the audience sees MCP gateway traffic, Authorino
+#     results and Kuadrant allow/deny counts next to the usage numbers.
+# Order: patches 1-5, then apply this file. Patch 1 builds RHOAI's observability stack
+#   (MonitoringStack, ThanosQuerier, Perses and a Prometheus in redhat-ods-monitoring): no Perses
+#   server or datasource exists before it, so every panel stays empty until it is up. It needs the
+#   Cluster Observability Operator, Tempo and OpenTelemetry operators installed: 07 and 08 install
+#   two of them, and the COO is in the operator list this guide starts from.
+# CPU: patch 1 adds that Prometheus. Check worker capacity first (our lab's workers sit at 81-95%
+#   of requests); replicas 1 instead of the default 2 halves the cost on a demo cluster.
+# Docs: RHOAI 3.5, Govern LLM access with Models-as-a-Service, 1.8 and 1.18 (Technology Preview)
+#   https://docs.redhat.com/en/documentation/red_hat_openshift_ai_self-managed/3.5/html-single/govern_llm_access_with_models-as-a-service/index
+#   COO UI plugins, 6.3 and 6.5 (PersesDashboard); KCS 7142030 (the Observe -> Dashboards menu).
+# All five patches go against objects that already exist (checked on RHOAI 3.5.2 / OCP 4.22, 2026-11-27):
+# 1. Observability stack (watch it come up: oc get pods -n redhat-ods-monitoring -w):
+#   oc patch dscinitialization default-dsci --type=merge \
+#     -p '{"spec":{"monitoring":{"metrics":{"replicas":1,"storage":{"size":"5Gi","retention":"2d"}}}}}'
+#   check: field forms: oc explain dscinitializations.dscinitialization.opendatahub.io.spec.monitoring.metrics.storage
+# 2. The Usage tab in the RHOAI dashboard:
+#   oc patch odhdashboardconfig odh-dashboard -n redhat-ods-applications --type=merge \
+#     -p '{"spec":{"dashboardConfig":{"observabilityDashboard":true}}}'
+#   check: the object name: oc get odhdashboardconfig -n redhat-ods-applications
+# 3. Kuadrant metrics (kuadrant_allowed, kuadrant_denied):
+#   oc patch kuadrant kuadrant -n kuadrant-system --type=merge \
+#     -p '{"spec":{"observability":{"enable":true}}}'
+# 4. MaaS telemetry (the authorized_calls metric; labels subscription, limitador_namespace, model):
+#   oc patch maastenantconfig default-tenant -n models-as-a-service --type=merge \
+#     -p '{"spec":{"telemetry":{"enabled":true,"metrics":{"captureOrganization":true,"captureUser":false,"captureGroup":false,"captureModelUsage":true}}}}'
+#   captureUser is an explicit choice: true puts user names and service account names into the
+#   metrics (per-user, per-agent token use). Keep it false unless the demo needs those numbers.
+#   The 3.5 docs show the same patch on tenants.maas.opendatahub.io/default-tenant; on 3.5.2 the
+#   object is the MaaSTenantConfig above.
+# 5. The console menu for the dashboard below (Observe -> Dashboards; KCS 7142030):
+#   oc patch uiplugin monitoring --type=merge \
+#     -p '{"spec":{"monitoring":{"perses":{"enabled":true}}}}'
+#   check: if no uiplugin monitoring exists (oc get uiplugin), create one as in 09-tracing-ui.yaml
+#   with the monitoring type.
+# check: the CR shape below follows the COO docs example (panels and layouts under spec.config), and
+#   its queries name no datasource. Before applying, compare with the dashboard RHOAI created and
+#   copy its datasource reference into each query:
+#   oc get persesdashboard dashboard-3-maas-usage-admin -n redhat-ods-monitoring -o yaml
+#   Fill <model-route> in the second panel with the model route's service name:
+#   sum by (destination_service_name) (rate(istio_requests_total{namespace="openshift-ingress"}[5m]))
+apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: agent-gateways
+  namespace: redhat-ods-monitoring
+spec:
+  config:
+    display:
+      name: Agent gateways
+      description: Requests and enforcement at the MCP gateway, MaaS, Authorino and Kuadrant
+    duration: 1h
+    panels:
+      mcp-gateway:
+        kind: Panel
+        spec:
+          display:
+            name: MCP gateway requests per second by response code
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name="mcp-gateway"}[5m]))
+      maas-requests:
+        kind: Panel
+        spec:
+          display:
+            name: MaaS requests by response code (maas-api and the model route)
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|<model-route>"}[5m]))
+      authorino:
+        kind: Panel
+        spec:
+          display:
+            name: Authorino results (OK, UNAUTHENTICATED, PERMISSION_DENIED)
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum by (status) (rate(auth_server_authconfig_response_status[5m]))
+      kuadrant:
+        kind: Panel
+        spec:
+          display:
+            name: Kuadrant allowed vs denied
+          plugin:
+            kind: TimeSeriesChart
+            spec: {}
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(kuadrant_allowed[5m]))
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  query: sum(rate(kuadrant_denied[5m]))
+    layouts:
+    - kind: Grid
+      spec:
+        display:
+          title: Requests and enforcement
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/mcp-gateway'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/maas-requests'
+        - x: 0
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/authorino'
+        - x: 12
+          y: 8
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/kuadrant'
+# Zero-setup fallback (no patches, no dashboard): the same four numbers in the console under
+# Observe -> Metrics, one query per panel:
+#   sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name="mcp-gateway"}[5m]))
+#   sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|<model-route>"}[5m]))
+#   sum by (status) (rate(auth_server_authconfig_response_status[5m]))
+#   sum(rate(kuadrant_allowed[5m]))      and      sum(rate(kuadrant_denied[5m]))

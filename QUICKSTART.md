@@ -56,6 +56,9 @@ cp demo.env.example demo.env && vi demo.env
 - To watch, open **Observe → Traces** in the console and pick the TempoStack and tenant. Widen the
   time range if a trace is missing from the list; raise the trace limit or sort by span count to
   bring the full OGX run to the top. `demo-run.sh` prints every trace ID to paste into TraceQL.
+- To show usage and enforcement numbers on dashboards beside the traces, apply
+  `14-console-dashboards.yaml` ([GUIDE 7](GUIDE.md#dashboards-for-the-demo)): the RHOAI Usage
+  dashboard (Technology Preview) plus an `agent-gateways` dashboard for the MCP gateway.
 
 ## If something fails
 
