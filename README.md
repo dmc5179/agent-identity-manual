@@ -11,7 +11,9 @@ for any agents you name, optionally with a real MCP tool call), `ogx-token.sh` (
 token with the `ogx-api` audience OGX requires, for the demo's OGX hop), and `demo-run.sh` (the
 whole demo in one command: pre-flight, the agent chain, the contrast run, the OGX hop, and a summary
 with the trace IDs). [TRACE-FORMAT.md](TRACE-FORMAT.md) describes
-the traces on the wire, for a team building alerts or dashboards on them.
+the traces on the wire, for a team building alerts or dashboards on them. [TRACE-FIELDS.md](TRACE-FIELDS.md)
+is the short field reference for a team receiving the traces into their own logging or observability
+system.
 
 Not perfect, a starting point. Each file says what it does, links the Red Hat doc, and lists the known
 issues that affect it.
