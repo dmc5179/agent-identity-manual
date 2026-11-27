@@ -67,7 +67,7 @@ USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
 MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
 MCP_CONTRAST="${DEMO_MCP_CONTRAST:-}"; CONTRAST_STEP=0
 OGX_URL="${DEMO_OGX_URL:-}"; OGX_MODEL="${DEMO_OGX_MODEL:-vllm-inference/publishers/llm/models/qwen3-8b}"
-OGX_MCP="${DEMO_OGX_MCP:-0}"; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
+OGX_MCP="${DEMO_OGX_MCP:-0}"; OGX_MCP_FLAG=0; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) USER_ID="$2"; shift 2 ;;
@@ -78,7 +78,7 @@ while [ $# -gt 0 ]; do
     --entry-url) ENTRY_URL="$2"; shift 2 ;;
     --ogx-url) OGX_URL="$2"; shift 2 ;;
     --ogx-model) OGX_MODEL="$2"; shift 2 ;;
-    --ogx-mcp) OGX_MCP=1; shift ;;
+    --ogx-mcp) OGX_MCP=1; OGX_MCP_FLAG=1; shift ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
@@ -86,7 +86,12 @@ while [ $# -gt 0 ]; do
   esac
 done
 if [ -n "$OGX_URL" ] && [ -n "$ENTRY_URL" ]; then echo "--ogx-url does not apply with --entry-url" >&2; exit 2; fi
-[ "$OGX_MCP" -eq 0 ] || [ -n "$OGX_URL" ] || { echo "--ogx-mcp requires --ogx-url" >&2; exit 2; }
+# DEMO_OGX_MCP from demo.env only matters when there is an OGX hop; an explicit --ogx-mcp
+# without an OGX URL is a mistake.
+if [ "$OGX_MCP" -eq 1 ] && [ -z "$OGX_URL" ]; then
+  [ "$OGX_MCP_FLAG" -eq 1 ] && { echo "--ogx-mcp requires --ogx-url" >&2; exit 2; }
+  OGX_MCP=0
+fi
 if [ ${#AGENTS[@]} -eq 0 ] && [ -n "${DEMO_AGENTS:-}" ]; then read -r -a AGENTS <<<"$DEMO_AGENTS"; fi
 [ -n "$ENTRY_URL" ] || [ ${#AGENTS[@]} -gt 0 ] || { usage; exit 2; }
 if [ -n "$MCP_CONTRAST" ]; then
@@ -374,7 +379,7 @@ for x in plans:
 if [ $DRY -eq 1 ]; then
   echo "Dry run: user.id=$USER_ID  collector=$OTLP  image=$IMAGE"
   [ -n "$MCP_TOOL" ] && echo "  MCP: the last agent calls $MCP_TOOL $MCP_ARGS via $MCP_URL (Host $MCP_HOST)"
-  [ -n "$OGX_URL" ] && echo "  OGX: the last agent POSTs $OGX_URL/v1/responses (model $OGX_MODEL$([ "$OGX_MCP" -eq 1 ] && echo ", MCP tool server $MCP_URL"), token $([ -n "$OGX_TOKEN" ] && echo present || echo "MISSING — an OGX with AUTH_ISSUER set will refuse with 401"))"
+  [ -n "$OGX_URL" ] && echo "  OGX: the last agent POSTs $OGX_URL/v1/responses (model $OGX_MODEL$([ "$OGX_MCP" -eq 1 ] && echo ", MCP tool server https://$MCP_HOST/mcp"), token $([ -n "$OGX_TOKEN" ] && echo present || echo "MISSING — an OGX with AUTH_ISSUER set will refuse with 401"))"
   [ -n "$MCP_LIST" ] && { echo "  would list the MCP gateway's tools as the first agent's service account via $MCP_URL (Host $MCP_HOST)"; exit 0; }
   if [ -n "$ENTRY_URL" ]; then echo "  would call $ENTRY_URL with traceparent + baggage user.id=$USER_ID"; exit 0; fi
   step=0
