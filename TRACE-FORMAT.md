@@ -131,6 +131,14 @@ Metrics are usually the better base for alerts, and traces for drilling into one
 | MCP tool failures | `invoke_mcp_tool` spans with `status.code = ERROR`, by `server_label` and `tool_name` |
 | Per user or per agent | `user.id`, `spiffe.id` on agent spans (not on OGX's own spans) |
 
+## Finding these spans in the console
+
+The console's Observe → Traces page (Cluster Observability Operator distributed tracing UI plugin)
+runs TraceQL against the TempoStack and tenant picked in the UI, with the same attribute names as in
+the tables above. Ready-made queries for one user, one agent, the OGX hop, the MCP tool spans, the
+model rounds, the refused contrast call and slow spans are in
+[GUIDE.md, section 7](GUIDE.md#finding-the-trace-in-the-console).
+
 ## How this was established
 
 - The OTLP structure and resource attributes: a real agent trace read back from Tempo on the lab.

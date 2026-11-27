@@ -306,6 +306,25 @@ Platform-verified identity on every step is a request to Red Hat.
 The probe pods install `opentelemetry-sdk`, `opentelemetry-exporter-otlp-proto-http` and `spiffe`
 with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that has them.
 
+### Finding the trace in the console
+
+On the console's **Observe → Traces** page (Cluster Observability Operator distributed tracing UI
+plugin), pick the TempoStack and tenant, then paste a TraceQL query into the search box. If the page
+shows nothing, widen the time range first: the default window misses a trace made a few minutes
+earlier. The attribute names are the ones TRACE-FORMAT.md documents; mind the scope, `service.name`
+is a resource attribute, `user.id`, `spiffe.id`, `mcp.tool.is_error` and the `gen_ai.*` counts are
+span attributes.
+
+| Look for | TraceQL | What it shows |
+|---|---|---|
+| One user | `{ span.user.id = "alice" }` | Every span the agents recorded for that user. OGX adds no user identity to its own spans, so the OGX hop appears when you open one of these traces. |
+| One agent | `{ span.spiffe.id = "spiffe://<trust-domain>/ns/agents/sa/researcher" }` | All spans of one agent; substitute its namespace and service account, which `demo-trace.sh` prints. |
+| The OGX hop | `{ resource.service.name = "ogx" }` | Every span OGX produced in the window: the `POST /v1/responses` SERVER span, the model rounds, the MCP exchange. |
+| MCP tool calls | `{ resource.service.name = "ogx" && name = "invoke_mcp_tool" }` | The tool call OGX made through the gateway, with `tool_name` and `server_label`. The agents' own calls match `{ name =~ "^tools/call" }`. |
+| Model rounds | `{ name =~ "^chat" }` | One span per model round, two when the request used a tool; add `&& span.gen_ai.usage.output_tokens > 500` to find the token-heavy ones. |
+| The refused call | `{ span.mcp.tool.is_error = true }` | The contrast account's tool call, refused for lack of RBAC; the one span that must show an error. |
+| Slow spans | `{ duration > 5s }` | Spans longer than five seconds. Without tools an OGX request takes about 4.7 s, so with a tool call (15-17 s) its SERVER span is the match. |
+
 ## 8. MCP tools through the MCP gateway
 
 Red Hat Connectivity Link 1.5 ships the MCP gateway: agents call MCP servers through the cluster
