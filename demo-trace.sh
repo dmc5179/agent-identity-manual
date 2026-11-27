@@ -314,18 +314,23 @@ TRACEPARENT=""; BAGGAGE=""; TRACE_ID=""
 # The timeline: one JSON plan per hop (offsets in seconds from DEMO_T0). Built from the last agent
 # back, because each agent's "call" step has to last as long as the next agent's whole span.
 plan_hops() {
-  DEMO_PACE="$DEMO_PACE" MCP_TOOL="$MCP_TOOL" OGX_URL="$OGX_URL" python3 -I -c '
+  DEMO_PACE="$DEMO_PACE" MCP_TOOL="$MCP_TOOL" OGX_URL="$OGX_URL" CONTRAST="$([ -n "$MCP_CONTRAST" ] && echo 1)" python3 -I -c '
 import json, os, random, sys
 names, pace = sys.argv[1:], float(os.environ["DEMO_PACE"])
 use_mcp = bool(os.environ.get("MCP_TOOL"))
 use_ogx = bool(os.environ.get("OGX_URL"))
+# With --mcp-contrast the contrast account is an extra hop after the last real agent: the real
+# agent still makes the allowed call (and the OGX call), and the contrast hop makes the same call.
+contrast = bool(os.environ.get("CONTRAST"))
+real_last = len(names) - (2 if contrast else 1)
 r = lambda a, b: round(random.uniform(a, b) * pace, 3)
 def build(i):
     # plan for hop i starting at offset 0, and its duration
     t, steps = 0.05, []
-    last = i + 1 == len(names)
+    last = i == real_last
+    mcp_here = use_mcp and (last or (contrast and i + 1 == len(names)))
     for n, a, b in (("think", 1.2, 2.4), ("tool lookup", 0.6, 1.4)):
-        if n == "tool lookup" and last and use_mcp:
+        if n == "tool lookup" and mcp_here:
             n, a, b = "mcp", 1.5, 2.0       # the real tools/call; its slot, not its duration
         d = r(a, b); steps.append({"name": n, "start": t, "end": t + d, "mcp": n == "mcp"}); t += d + 0.05
     if last and use_ogx:
