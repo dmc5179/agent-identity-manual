@@ -4,7 +4,7 @@ Bare YAML for a cluster where the operators are **installed but not configured**
 OpenShift AI 3.5 (OGX, MaaS), Connectivity Link 1.5, Red Hat build of OpenTelemetry, Tempo, the
 Cluster Observability Operator and OpenShift Service Mesh 3. No AutoShift, no Helm.
 
-**Start with [GUIDE.md](GUIDE.md)**, which has the steps, commands, checks and troubleshooting. Helpers: `render.sh` (fills
+**Start with [QUICKSTART.md](QUICKSTART.md)**, a one-page path to build the environment and run the demo. [GUIDE.md](GUIDE.md) has the steps, commands, checks and troubleshooting. Helpers: `render.sh` (fills
 `vars.env` into a file, then prints, dry-runs or applies it), `verify.sh` (one line per component), `trace-query.sh`
 (prints one trace with the user and SPIFFE ID on each hop), `demo-trace.sh` (a fresh user → agent → agent trace
 for any agents you name, optionally with a real MCP tool call), `ogx-token.sh` (the Keycloak user
