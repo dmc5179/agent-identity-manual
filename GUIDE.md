@@ -266,7 +266,7 @@ without tools took about 4.7 s, and one with a single MCP tool call 15-17 s (two
 one NVIDIA L4, qwen3-8b):
 
 ```bash
-DEMO_OGX_TOKEN=<keycloak-user-token> ./demo-trace.sh --user alice \
+DEMO_OGX_TOKEN="$(./ogx-token.sh alice)" ./demo-trace.sh --user alice \
   --ogx-url http://ogx-service.<ns>.svc.cluster.local:8321 \
   --ogx-mcp agents/planner=Planner agents/researcher=Researcher
 ```
@@ -276,10 +276,17 @@ accepts only Keycloak tokens whose `aud` claim includes the `ogx-api` audience â
 service account token will not work. The realm template (00-keycloak-realm-clients.json) provides
 that audience through an optional client scope named `ogx-api`: the scope adds `ogx-api` to `aud`
 when, and only when, the client asks for scope `openid ogx-api`, so ordinary sign-in tokens stay
-unchanged. Mint `DEMO_OGX_TOKEN` as a user token requested with scope `openid ogx-api`: a direct
-request to the realm's token endpoint, in the shape `scripts/lib-oc-token.sh` (cluster repository)
-makes, with the extra scope; that script's plain `openid` token does not carry the audience. Pass
-the token through `DEMO_OGX_TOKEN`; it is never printed. Without it, an OGX with auth on refuses
+unchanged. `ogx-token.sh` in this repository mints it: `export DEMO_OGX_TOKEN="$(./ogx-token.sh <keycloak-user>)"`
+sends the password grant to the realm's token endpoint (discovered from `KEYCLOAK_ISSUER`, with the
+client from `KEYCLOAK_CLI_CLIENT`; both come from the environment or `vars.env`, which the script
+reads with sed and never sources), with scope `openid ogx-api`. It prompts for the password without
+echo, or reads one line from stdin, and hands the password to curl on stdin, never as an argument.
+It decodes the returned token and fails when `aud` does not include `ogx-api`, which means the
+`ogx-api` optional client scope is missing from the realm or from the client. With `KEYCLOAK_CA`
+set, curl verifies the Keycloak certificate against that bundle; with it unset, curl falls back to
+`-k`, acceptable only against a lab. Only the token is printed, on stdout. `scripts/lib-oc-token.sh`
+(cluster repository) makes the same request for a plain `openid` token, which does not carry the
+audience. Pass the token through `DEMO_OGX_TOKEN`; it is never printed. Without it, an OGX with auth on refuses
 the request with 401 and the span shows the refusal, which is a useful negative case. `--ogx-mcp`
 (`DEMO_OGX_MCP=1`) hands OGX the MCP gateway as a tool server, so OGX produces `list_mcp_tools` and
 `invoke_mcp_tool` spans in the same trace â€” a prompt that needs no tool produces `list_mcp_tools`
