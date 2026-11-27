@@ -102,6 +102,15 @@ Dex's OpenShift connector any more: set `spec.oidcConfig` on the ArgoCD CR again
 `spec.sso` (the two together fail validation). Keep the Argo CD admin password until Keycloak sign-in is
 proven. Dev Spaces follows.
 
+The Argo CD client is a confidential client with standard flow on, direct access grants off, and no
+PKCE requirement: Argo CD's server-side flow sends no `code_challenge_method`, so requiring PKCE fails
+every sign-in. Argo CD requests the scope named `groups`, so the realm needs a client scope with that
+name (include in token scope, one group membership mapper), assigned as a default client scope of the
+client. Put the client secret in a Secret of its own in the instance namespace, labeled
+`app.kubernetes.io/part-of: argocd`, and point `spec.oidcConfig.clientSecretRef` at it. Switching an
+existing instance is a one-time `oc patch` that removes `spec.sso`, then a restart of the instance's
+server Deployment before its sessions verify against the root CA.
+
 **OpenShift Lightspeed** needs each user's uid to be a UUID (OCPBUGS-141930). Keycloak's `sub` claim
 is one, so the default mapping works; do not map the uid to another claim.
 
