@@ -42,10 +42,11 @@
 #   check: if no uiplugin monitoring exists (oc get uiplugin), create one as in 09-tracing-ui.yaml
 #   with the monitoring type.
 # check: the CR shape below follows the COO docs example (panels and layouts under spec.config), and
-#   its queries name no datasource. Before applying, compare with the dashboard RHOAI created and
-#   copy its datasource reference into each query:
+#   its queries use cluster-prometheus-datasource, which RHOAI creates with patch 1 and which reads the
+#   cluster Thanos querier (platform and user workload metrics, where the gateway and Authorino metrics
+#   are). RHOAI's own dashboards use data-science-prometheus-datasource instead. To compare:
 #   oc get persesdashboard dashboard-3-maas-usage-admin -n redhat-ods-monitoring -o yaml
-#   Fill <model-route> in the second panel with the model route's service name:
+#   Fill qwen3-8b-kserve-workload-svc in the second panel with the model route's service name:
 #   sum by (destination_service_name) (rate(istio_requests_total{namespace="openshift-ingress"}[5m]))
 apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
@@ -74,6 +75,9 @@ spec:
                 kind: PrometheusTimeSeriesQuery
                 spec:
                   query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name="mcp-gateway"}[5m]))
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: cluster-prometheus-datasource
       maas-requests:
         kind: Panel
         spec:
@@ -88,7 +92,10 @@ spec:
               plugin:
                 kind: PrometheusTimeSeriesQuery
                 spec:
-                  query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|<model-route>"}[5m]))
+                  query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|qwen3-8b-kserve-workload-svc"}[5m]))
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: cluster-prometheus-datasource
       authorino:
         kind: Panel
         spec:
@@ -104,6 +111,9 @@ spec:
                 kind: PrometheusTimeSeriesQuery
                 spec:
                   query: sum by (status) (rate(auth_server_authconfig_response_status[5m]))
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: cluster-prometheus-datasource
       kuadrant:
         kind: Panel
         spec:
@@ -119,12 +129,18 @@ spec:
                 kind: PrometheusTimeSeriesQuery
                 spec:
                   query: sum(rate(kuadrant_allowed[5m]))
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: cluster-prometheus-datasource
           - kind: TimeSeriesQuery
             spec:
               plugin:
                 kind: PrometheusTimeSeriesQuery
                 spec:
                   query: sum(rate(kuadrant_denied[5m]))
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: cluster-prometheus-datasource
     layouts:
     - kind: Grid
       spec:
@@ -160,6 +176,6 @@ spec:
 # Zero-setup fallback (no patches, no dashboard): the same four numbers in the console under
 # Observe -> Metrics, one query per panel:
 #   sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name="mcp-gateway"}[5m]))
-#   sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|<model-route>"}[5m]))
+#   sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|qwen3-8b-kserve-workload-svc"}[5m]))
 #   sum by (status) (rate(auth_server_authconfig_response_status[5m]))
 #   sum(rate(kuadrant_allowed[5m]))      and      sum(rate(kuadrant_denied[5m]))
