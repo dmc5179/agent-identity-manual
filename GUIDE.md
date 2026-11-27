@@ -270,7 +270,7 @@ MaaS name, and answers 404 to the bare MaaS name). The request carries the agent
 baggage, so OGX's spans continue the same trace under a `POST /v1/responses` client span recorded by
 the agent (`demo.simulated=false`, the real HTTP status). In the live run of 2026-11-27 a request
 without tools took about 4.7 s, and one with a single MCP tool call 15-17 s (two model rounds on
-one NVIDIA L4, qwen3-8b):
+one NVIDIA L4, qwen3-8b): `DEMO_OGX_PROMPT` (or `--ogx-prompt`) sets the question OGX gets; with `--ogx-mcp`, ask something the tool can answer.
 
 ```bash
 DEMO_OGX_TOKEN="$(./ogx-token.sh alice)" ./demo-trace.sh --user alice \

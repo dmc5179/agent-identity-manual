@@ -41,10 +41,11 @@
 # with DEMO_OGX_TOKEN, and records it as a "POST /v1/responses" client span with the real duration
 # and HTTP status (demo.simulated=false). The request carries the agent's W3C traceparent and
 # baggage user.id, so OGX's spans continue the same trace under this span. --ogx-model overrides
-# the model (default vllm-inference/publishers/llm/models/qwen3-8b: OGX prefixes the provider id). --ogx-mcp adds a tools entry of type mcp
-# pointing at the MCP gateway (the same in-cluster URL the --mcp-tool step uses), so OGX produces
-# list_mcp_tools and invoke_mcp_tool spans; OGX's service account then needs the gateway's RBAC
-# the agents have. The token: OGX with AUTH_ISSUER set (10-ogx.yaml) accepts only Keycloak tokens
+# the model (default vllm-inference/publishers/llm/models/qwen3-8b: OGX prefixes the provider id).
+# --ogx-prompt (DEMO_OGX_PROMPT) sets the question; "$NS" in it becomes the agent's namespace.
+# --ogx-mcp adds a tools entry of type mcp pointing at the MCP gateway's public route, with the
+# agent's own token, so OGX produces list_mcp_tools and invoke_mcp_tool spans and the MCP server
+# applies the agent's RBAC. With --ogx-mcp, ask something the tool can answer. The token: OGX with AUTH_ISSUER set (10-ogx.yaml) accepts only Keycloak tokens
 # carrying the ogx-api audience — the agent's service account token will NOT work. Supply one
 # through DEMO_OGX_TOKEN (scripts/lib-oc-token.sh in rhoai-mass-aws, or your Keycloak token
 # endpoint); it is passed to the pod and never printed. Without DEMO_OGX_TOKEN the request goes
@@ -67,7 +68,7 @@ USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
 MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
 MCP_CONTRAST="${DEMO_MCP_CONTRAST:-}"; CONTRAST_STEP=0
 OGX_URL="${DEMO_OGX_URL:-}"; OGX_MODEL="${DEMO_OGX_MODEL:-vllm-inference/publishers/llm/models/qwen3-8b}"
-OGX_MCP="${DEMO_OGX_MCP:-0}"; OGX_MCP_FLAG=0; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
+OGX_PROMPT="${DEMO_OGX_PROMPT:-}"; OGX_MCP="${DEMO_OGX_MCP:-0}"; OGX_MCP_FLAG=0; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) USER_ID="$2"; shift 2 ;;
@@ -78,6 +79,7 @@ while [ $# -gt 0 ]; do
     --entry-url) ENTRY_URL="$2"; shift 2 ;;
     --ogx-url) OGX_URL="$2"; shift 2 ;;
     --ogx-model) OGX_MODEL="$2"; shift 2 ;;
+    --ogx-prompt) OGX_PROMPT="$2"; shift 2 ;;
     --ogx-mcp) OGX_MCP=1; OGX_MCP_FLAG=1; shift ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -193,6 +195,11 @@ def ogx_call(ctx_for_headers):
                           "authorization": satok,
                           "allowed_tools": [mcp_tool],
                           "require_approval": "never"}]
+    # A question of the presenter's own (--ogx-prompt / DEMO_OGX_PROMPT) replaces the default;
+    # $NS becomes the agent's namespace. With --ogx-mcp, ask something the tool can answer.
+    custom = os.environ.get("OGX_PROMPT", "")
+    if custom:
+        body["input"] = custom.replace("$NS", os.environ.get("NS", ""))
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     tok = os.environ.get("OGX_TOKEN", "")
     if tok:
@@ -386,6 +393,7 @@ for x in plans:
 if [ $DRY -eq 1 ]; then
   echo "Dry run: user.id=$USER_ID  collector=$OTLP  image=$IMAGE"
   [ -n "$MCP_TOOL" ] && echo "  MCP: the last agent calls $MCP_TOOL $MCP_ARGS via $MCP_URL (Host $MCP_HOST)"
+  [ -n "$OGX_URL" ] && [ -n "$OGX_PROMPT" ] && echo "  OGX prompt: $OGX_PROMPT"
   [ -n "$OGX_URL" ] && echo "  OGX: the last agent POSTs $OGX_URL/v1/responses (model $OGX_MODEL$([ "$OGX_MCP" -eq 1 ] && echo ", MCP tool server https://$MCP_HOST/mcp"), token $([ -n "$OGX_TOKEN" ] && echo present || echo "MISSING — an OGX with AUTH_ISSUER set will refuse with 401"))"
   [ -n "$MCP_LIST" ] && { echo "  would list the MCP gateway's tools as the first agent's service account via $MCP_URL (Host $MCP_HOST)"; exit 0; }
   if [ -n "$ENTRY_URL" ]; then echo "  would call $ENTRY_URL with traceparent + baggage user.id=$USER_ID"; exit 0; fi
@@ -428,12 +436,12 @@ else
     USER_ID="$USER_ID" TRACEPARENT="$TRACEPARENT" BAGGAGE="$BAGGAGE" HOP_PY="$HOP_PY" \
     DEMO_T0="$DEMO_T0" DEMO_PLAN="${PLANS[$((step - 1))]}" \
     MCP_TOOL="$MCP_TOOL" MCP_ARGS="$MCP_ARGS" MCP_URL="$MCP_URL" MCP_HOST="$MCP_HOST" MCP_LIST="$MCP_LIST" \
-    OGX_URL="$OGX_URL" OGX_MODEL="$OGX_MODEL" OGX_MCP="$OGX_MCP" OGX_TOKEN="$OGX_TOKEN" python3 -I -c '
+    OGX_URL="$OGX_URL" OGX_MODEL="$OGX_MODEL" OGX_MCP="$OGX_MCP" OGX_TOKEN="$OGX_TOKEN" OGX_PROMPT="$OGX_PROMPT" python3 -I -c '
 import json, os
 e = os.environ
 env = [{"name": k, "value": e[k]} for k in ("AGENT_NAME", "USER_ID", "STEP", "OTLP", "TRACEPARENT", "BAGGAGE", "HOP_PY", "DEMO_T0", "DEMO_PLAN",
                                       "MCP_TOOL", "MCP_ARGS", "MCP_URL", "MCP_HOST", "NS", "MCP_LIST",
-                                      "OGX_URL", "OGX_MODEL", "OGX_MCP", "OGX_TOKEN")]
+                                      "OGX_URL", "OGX_MODEL", "OGX_MCP", "OGX_TOKEN", "OGX_PROMPT")]
 env += [{"name": "SPIFFE_ENDPOINT_SOCKET", "value": "unix:///spiffe-workload-api/spire-agent.sock"},
         {"name": "HOME", "value": "/tmp"}]
 print(json.dumps({"apiVersion": "v1", "kind": "Pod",
