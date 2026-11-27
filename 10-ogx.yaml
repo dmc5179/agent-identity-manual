@@ -52,9 +52,11 @@ spec:
       - name: OTEL_LOGS_EXPORTER
         value: none
       # PostgreSQL metadata store (required). Create the Secret first:
-      #   oc create secret generic ogx-postgres -n ${OGX_NAMESPACE} --from-literal=password=<pw>
+      #   scripts/ogx-database.sh secret < secrets/ogx-db.env   (rhoai-mass-aws)
+      # which applies Secret ogx-postgres (key password) from the credentials file
+      # scripts/ogx-database.sh create wrote.
       - name: POSTGRES_HOST
-        value: <postgres-host>          # for example postgres.${OGX_NAMESPACE}.svc
+        value: ${OGX_DB_HOST}          # the RDS endpoint from secrets/ogx-db.env
       - name: POSTGRES_PORT
         value: "5432"
       - name: POSTGRES_DB
@@ -63,11 +65,27 @@ spec:
         value: ogx
       - name: POSTGRES_PASSWORD
         valueFrom: {secretKeyRef: {name: ogx-postgres, key: password}}
-      # Point to your model; for MaaS use its URL and an API key Secret:
-      # - name: VLLM_URL
-      #   value: https://maas.${APPS_DOMAIN}/llm/<model>/v1
-      # - name: VLLM_API_TOKEN
-      #   valueFrom: {secretKeyRef: {name: maas-api-key, key: key}}
+      # TLS to the database: RDS PostgreSQL 15 and later sets rds.force_ssl=1, so the
+      # server rejects a plaintext connection. No sslmode setting exists to set: the
+      # env names above come from the image's /opt/app-root/config.yaml, which carries
+      # host, port, db, user and password only. libpq-based clients (psycopg2) default
+      # to sslmode=prefer, which negotiates TLS without verifying the server
+      # certificate, so the RDS handshake normally succeeds. If the connection still
+      # fails, the pod logs show the TLS error and the only lever is the client default.
+      # Model provider: the MaaS gateway. base_url is the gateway root — the live
+      # playground set https://maas.<apps domain>/v1 (not a per-model path); requests
+      # pick the model with its full MaaS id, for example publishers/llm/models/qwen3-8b
+      # (a bare name matches no gateway routing rule).
+      # Mint the API key as a MaaS user (the scripts/maas-user.sh flow in rhoai-mass-aws,
+      # phase 40 mints against a subscription): MaaS keys expire, at most 90 days on 3.5.2.
+      - name: VLLM_URL
+        value: https://maas.${APPS_DOMAIN}/v1
+      - name: VLLM_API_TOKEN
+        valueFrom: {secretKeyRef: {name: ogx-maas-key, key: apikey}}
+      # VLLM_TLS_VERIFY: leave unset. The MaaS route certificate is signed by the
+      # cluster's ingress CA; trust it through spec.tls.trust.caCertificates below
+      # rather than turning verification off.
   # tls:
   #   trust:
-  #     caCertificates: [{name: keycloak-ca, key: ca.crt}]   # if Keycloak uses a private CA
+  #     caCertificates: [{name: ingress-ca, key: ca.crt}]   # the cluster ingress CA covers
+  #     the Keycloak route and the MaaS route (VLLM_URL) when either uses a private CA

@@ -36,8 +36,22 @@
 # mcp.tool.is_error=true and the script prints the refusal as an expected result, not a failure.
 # Requires --mcp-tool; see GUIDE.md section 7.
 #
-# demo.env (optional, see demo.env.example): DEMO_USER, DEMO_AGENTS, DEMO_MCP_*, IMAGE, OTLP_ENDPOINT.
-# Command-line values win over demo.env.
+# OGX hop (--ogx-url URL, or DEMO_OGX_URL in demo.env): after its steps, the LAST agent makes one
+# real OpenAI Responses request to OGX (POST <url>/v1/responses, model OGX_MODEL), authenticated
+# with DEMO_OGX_TOKEN, and records it as a "POST /v1/responses" client span with the real duration
+# and HTTP status (demo.simulated=false). The request carries the agent's W3C traceparent and
+# baggage user.id, so OGX's spans continue the same trace under this span. --ogx-model overrides
+# the model (default publishers/llm/models/qwen3-8b). --ogx-mcp adds a tools entry of type mcp
+# pointing at the MCP gateway (the same in-cluster URL the --mcp-tool step uses), so OGX produces
+# list_mcp_tools and invoke_mcp_tool spans; OGX's service account then needs the gateway's RBAC
+# the agents have. The token: OGX with AUTH_ISSUER set (10-ogx.yaml) accepts only Keycloak tokens
+# carrying the ogx-api audience — the agent's service account token will NOT work. Supply one
+# through DEMO_OGX_TOKEN (scripts/lib-oc-token.sh in rhoai-mass-aws, or your Keycloak token
+# endpoint); it is passed to the pod and never printed. Without DEMO_OGX_TOKEN the request goes
+# unauthenticated, which an OGX with auth on refuses with 401 — the span then shows the refusal.
+#
+# demo.env (optional, see demo.env.example): DEMO_USER, DEMO_AGENTS, DEMO_MCP_*, DEMO_OGX_*,
+# IMAGE, OTLP_ENDPOINT. Command-line values win over demo.env.
 # --dry-run prints the hops and the pods it would create, and changes nothing.
 #
 # Prints the trace ID, a console link, and (if trace-query.sh works) the chain.
@@ -47,11 +61,13 @@
 set -euo pipefail
 cd "$(dirname "$0")"; [ -f vars.env ] && { set -a; . ./vars.env; set +a; }
 [ -f demo.env ] && { set -a; . ./demo.env; set +a; }
-usage() { sed -n '2,45p' "$0"; }
+usage() { sed -n '2,57p' "$0"; }
 
 USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
 MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
 MCP_CONTRAST="${DEMO_MCP_CONTRAST:-}"; CONTRAST_STEP=0
+OGX_URL="${DEMO_OGX_URL:-}"; OGX_MODEL="${DEMO_OGX_MODEL:-publishers/llm/models/qwen3-8b}"
+OGX_MCP=0; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) USER_ID="$2"; shift 2 ;;
@@ -60,12 +76,17 @@ while [ $# -gt 0 ]; do
     --mcp-args) MCP_ARGS="$2"; shift 2 ;;
     --mcp-contrast) MCP_CONTRAST="$2"; shift 2 ;;
     --entry-url) ENTRY_URL="$2"; shift 2 ;;
+    --ogx-url) OGX_URL="$2"; shift 2 ;;
+    --ogx-model) OGX_MODEL="$2"; shift 2 ;;
+    --ogx-mcp) OGX_MCP=1; shift ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) AGENTS+=("$1"); shift ;;
   esac
 done
+if [ -n "$OGX_URL" ] && [ -n "$ENTRY_URL" ]; then echo "--ogx-url does not apply with --entry-url" >&2; exit 2; fi
+[ "$OGX_MCP" -eq 0 ] || [ -n "$OGX_URL" ] || { echo "--ogx-mcp requires --ogx-url" >&2; exit 2; }
 if [ ${#AGENTS[@]} -eq 0 ] && [ -n "${DEMO_AGENTS:-}" ]; then read -r -a AGENTS <<<"$DEMO_AGENTS"; fi
 [ -n "$ENTRY_URL" ] || [ ${#AGENTS[@]} -gt 0 ] || { usage; exit 2; }
 if [ -n "$MCP_CONTRAST" ]; then
@@ -137,6 +158,33 @@ def mcp_rpc(body, tok, url, host, trace_headers=None, sid=None):
     data = next((l[5:].strip() for l in raw.splitlines() if l.startswith("data:")), raw.strip())
     return code, (json.loads(data) if data else None)
 
+def ogx_call(ctx_for_headers):
+    """One real POST /v1/responses to OGX with a Keycloak user token (DEMO_OGX_TOKEN).
+    Carries this span's traceparent and the baggage user.id, so OGX continues the trace.
+    Returns (http_status, summary, response_bytes)."""
+    url, model = os.environ["OGX_URL"].rstrip("/"), os.environ["OGX_MODEL"]
+    body = {"model": model, "input": "Reply with one short sentence that greets the user."}
+    if os.environ.get("OGX_MCP") == "1":
+        body["tools"] = [{"type": "mcp", "server_label": "mcp-gateway",
+                          "server_url": os.environ["MCP_URL"], "require_approval": "never"}]
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    tok = os.environ.get("OGX_TOKEN", "")
+    if tok:
+        headers["Authorization"] = "Bearer " + tok
+    propagate.inject(headers, context=ctx_for_headers)
+    req = urllib.request.Request(url + "/v1/responses", data=json.dumps(body).encode(),
+                                 headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=120) as r:
+            raw, code = r.read().decode(), r.status
+    except urllib.error.HTTPError as e:
+        return e.code, "refused: HTTP %s" % e.code, 0
+    try:
+        text = json.loads(raw).get("output_text", "")
+    except ValueError:
+        text = raw[:120]
+    return code, (text or raw)[:160].replace("\n", " "), len(raw)
+
 def mcp_call(ctx_for_headers):
     """One real tools/call through the MCP gateway with this pod's service account token.
     Returns (is_error, summary, result_bytes, http_status)."""
@@ -191,7 +239,34 @@ span = tracer.start_span(f"{name}.handle", kind=SpanKind.SERVER, start_time=at(p
 sctx = trace.set_span_in_context(span)
 out = {}
 mcp_report = None
+ogx_report = None
 for w in plan["steps"]:
+    if w.get("ogx") and os.environ.get("OGX_URL"):
+        # A real call to OGX: a client span that OGX's SERVER span becomes a child of, because
+        # the request carries this span's traceparent. Placed at the planned start, measured
+        # duration kept as an attribute (the model may run longer than the planned slot).
+        from opentelemetry.trace import Status, StatusCode
+        child = tracer.start_span("POST /v1/responses", context=sctx, kind=SpanKind.CLIENT,
+                                  start_time=at(w["start"]),
+                                  attributes={**ids, "demo.simulated": False,
+                                              "http.request.method": "POST",
+                                              "server.address": os.environ["OGX_URL"].split("//")[-1],
+                                              "gen_ai.request.model": os.environ["OGX_MODEL"]})
+        t = time.time()
+        code, summary, nbytes = ogx_call(trace.set_span_in_context(child, sctx))
+        ms = (time.time() - t) * 1000
+        child.set_attribute("http.response.status_code", int(code or 0))
+        child.set_attribute("demo.measured_duration_ms", round(ms, 1))
+        if nbytes:
+            child.set_attribute("demo.response.bytes", nbytes)
+        if int(code or 0) >= 400:
+            child.set_status(Status(StatusCode.ERROR, summary[:120]))
+        # OGX's spans continue from THIS client span: propagate from its context, so the
+        # printed DEMO_TRACEPARENT is the parent OGX's SERVER span nests under.
+        propagate.inject(out, context=trace.set_span_in_context(child, sctx))
+        child.end(end_time=min(at(w["start"]) + int(ms * 1e6), at(w["end"])))
+        ogx_report = (os.environ["OGX_MODEL"], code, round(ms), summary)
+        continue
     if w.get("mcp") and os.environ.get("MCP_TOOL"):
         # A real call: placed at the planned start, with its measured duration (clamped to the
         # planned slot, so it stays inside its parent; the measured value is kept as an attribute).
@@ -230,6 +305,8 @@ print("DEMO_TRACE_ID=" + tid)
 print("DEMO_SPIFFE_ID=" + sid)
 if mcp_report:
     print("DEMO_MCP=%s|%s|%s|%s" % mcp_report)
+if ogx_report:
+    print("DEMO_OGX=%s|%s|%s|%s" % ogx_report)
 PY
 
 TRACEPARENT=""; BAGGAGE=""; TRACE_ID=""
@@ -237,10 +314,11 @@ TRACEPARENT=""; BAGGAGE=""; TRACE_ID=""
 # The timeline: one JSON plan per hop (offsets in seconds from DEMO_T0). Built from the last agent
 # back, because each agent's "call" step has to last as long as the next agent's whole span.
 plan_hops() {
-  DEMO_PACE="$DEMO_PACE" MCP_TOOL="$MCP_TOOL" python3 -I -c '
+  DEMO_PACE="$DEMO_PACE" MCP_TOOL="$MCP_TOOL" OGX_URL="$OGX_URL" python3 -I -c '
 import json, os, random, sys
 names, pace = sys.argv[1:], float(os.environ["DEMO_PACE"])
 use_mcp = bool(os.environ.get("MCP_TOOL"))
+use_ogx = bool(os.environ.get("OGX_URL"))
 r = lambda a, b: round(random.uniform(a, b) * pace, 3)
 def build(i):
     # plan for hop i starting at offset 0, and its duration
@@ -250,6 +328,9 @@ def build(i):
         if n == "tool lookup" and last and use_mcp:
             n, a, b = "mcp", 1.5, 2.0       # the real tools/call; its slot, not its duration
         d = r(a, b); steps.append({"name": n, "start": t, "end": t + d, "mcp": n == "mcp"}); t += d + 0.05
+    if last and use_ogx:
+        d = r(6.0, 12.0)                   # the real POST /v1/responses; model time may exceed the slot
+        steps.append({"name": "ogx", "start": t, "end": t + d, "ogx": True}); t += d + 0.05
     if i + 1 < len(names):
         sub, sd = build(i + 1)
         steps.append({"name": "call " + names[i + 1], "start": t, "end": t + sd + 0.2, "call": True,
@@ -274,6 +355,7 @@ for x in plans:
 if [ $DRY -eq 1 ]; then
   echo "Dry run: user.id=$USER_ID  collector=$OTLP  image=$IMAGE"
   [ -n "$MCP_TOOL" ] && echo "  MCP: the last agent calls $MCP_TOOL $MCP_ARGS via $MCP_URL (Host $MCP_HOST)"
+  [ -n "$OGX_URL" ] && echo "  OGX: the last agent POSTs $OGX_URL/v1/responses (model $OGX_MODEL$([ "$OGX_MCP" -eq 1 ] && echo ", MCP tool server $MCP_URL"), token $([ -n "$OGX_TOKEN" ] && echo present || echo "MISSING — an OGX with AUTH_ISSUER set will refuse with 401"))"
   [ -n "$MCP_LIST" ] && { echo "  would list the MCP gateway's tools as the first agent's service account via $MCP_URL (Host $MCP_HOST)"; exit 0; }
   if [ -n "$ENTRY_URL" ]; then echo "  would call $ENTRY_URL with traceparent + baggage user.id=$USER_ID"; exit 0; fi
   step=0
@@ -307,11 +389,13 @@ else
     AGENT_NAME="$disp" STEP="$step" NS="$ns" SA="$sa" POD="$pod" IMAGE="$IMAGE" PIP="$PIP" OTLP="$OTLP" \
     USER_ID="$USER_ID" TRACEPARENT="$TRACEPARENT" BAGGAGE="$BAGGAGE" HOP_PY="$HOP_PY" \
     DEMO_T0="$DEMO_T0" DEMO_PLAN="${PLANS[$((step - 1))]}" \
-    MCP_TOOL="$MCP_TOOL" MCP_ARGS="$MCP_ARGS" MCP_URL="$MCP_URL" MCP_HOST="$MCP_HOST" MCP_LIST="$MCP_LIST" python3 -I -c '
+    MCP_TOOL="$MCP_TOOL" MCP_ARGS="$MCP_ARGS" MCP_URL="$MCP_URL" MCP_HOST="$MCP_HOST" MCP_LIST="$MCP_LIST" \
+    OGX_URL="$OGX_URL" OGX_MODEL="$OGX_MODEL" OGX_MCP="$OGX_MCP" OGX_TOKEN="$OGX_TOKEN" python3 -I -c '
 import json, os
 e = os.environ
 env = [{"name": k, "value": e[k]} for k in ("AGENT_NAME", "USER_ID", "STEP", "OTLP", "TRACEPARENT", "BAGGAGE", "HOP_PY", "DEMO_T0", "DEMO_PLAN",
-                                      "MCP_TOOL", "MCP_ARGS", "MCP_URL", "MCP_HOST", "NS", "MCP_LIST")]
+                                      "MCP_TOOL", "MCP_ARGS", "MCP_URL", "MCP_HOST", "NS", "MCP_LIST",
+                                      "OGX_URL", "OGX_MODEL", "OGX_MCP", "OGX_TOKEN")]
 env += [{"name": "SPIFFE_ENDPOINT_SOCKET", "value": "unix:///spiffe-workload-api/spire-agent.sock"},
         {"name": "HOME", "value": "/tmp"}]
 print(json.dumps({"apiVersion": "v1", "kind": "Pod",
@@ -352,6 +436,11 @@ print(json.dumps({"apiVersion": "v1", "kind": "Pod",
       else
         echo "    MCP tools/call $mtool via $MCP_HOST: $([ "$merr" = True ] && echo ERROR || echo ok) in ${mms} ms: ${msum:0:110}"
       fi
+    fi
+    ogx=$(sed -n 's/^DEMO_OGX=//p' <<<"$out")
+    if [ -n "$ogx" ]; then
+      IFS='|' read -r omodel ocode oms osum <<<"$ogx"
+      echo "    OGX POST /v1/responses ($omodel): HTTP $ocode in ${oms} ms: ${osum:0:110}"
     fi
   done
 fi

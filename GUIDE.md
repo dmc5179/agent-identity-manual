@@ -234,6 +234,27 @@ For agents that are already instrumented and expose HTTP, `./demo-trace.sh --use
 https://<agent>` sends one request with a new trace and the user in baggage, and the real agents carry
 it on.
 
+**OGX hop.** `--ogx-url <server>` (or `DEMO_OGX_URL`) makes the last agent end its run with one real
+request to OGX, `POST <url>/v1/responses` with model `DEMO_OGX_MODEL` (default
+`publishers/llm/models/qwen3-8b`). The request carries the agent's traceparent and `user.id` in
+baggage, so OGX's spans continue the same trace under a `POST /v1/responses` client span recorded by
+the agent (`demo.simulated=false`, the real HTTP status):
+
+```bash
+DEMO_OGX_TOKEN=<keycloak-user-token> ./demo-trace.sh --user alice --ogx-url http://ogx-server.agents.svc.cluster.local:8321 \
+  --ogx-mcp agents/planner=Planner agents/researcher=Researcher
+```
+
+The token must be one OGX accepts: with `AUTH_ISSUER` set (10-ogx.yaml), a Keycloak token carrying
+the `ogx-api` audience — the agent's service account token will not work. Get one with
+`scripts/lib-oc-token.sh` in the cluster repository, or your Keycloak token endpoint, and pass it
+through `DEMO_OGX_TOKEN`; it is never printed. Without it, an OGX with auth on refuses the request
+with 401 and the span shows the refusal, which is a useful negative case. `--ogx-mcp`
+(`DEMO_OGX_MCP=1`) hands OGX the MCP gateway as a tool server, so OGX produces `list_mcp_tools` and
+`invoke_mcp_tool` spans in the same trace; OGX's service account then needs the gateway RBAC the
+agents have. `ogx-trace-check.sh <trace id>` checks the trace against every expectation in
+TRACE-FORMAT.md's OGX section and prints PASS or FAIL per field.
+
 What to say in the demo: each step shows *which agent* (its SPIFFE identity) acted for *which user*.
 Those two labels are written by the agents (here, by the probe) and are not yet verified by the platform.
 Platform-verified identity on every step is a request to Red Hat.
