@@ -107,6 +107,13 @@ NS_TRACING="${TRACING_NAMESPACE:-tracing}"
 OTLP="${OTLP_ENDPOINT:-http://otel-collector.${NS_TRACING}.svc.cluster.local:4318}"
 IMAGE="${IMAGE:-registry.access.redhat.com/ubi9/python-312}"
 PIP="${PIP_PACKAGES:-opentelemetry-sdk opentelemetry-exporter-otlp-proto-http spiffe}"
+# Every step below needs a working cluster login. An expired one (a Keycloak login lasts minutes)
+# otherwise surfaces later as "service account not found" or an empty gateway host.
+if ! who_err="$(oc whoami 2>&1)"; then
+  echo "oc cannot reach the cluster as context '$(oc config current-context 2>/dev/null)': $who_err" >&2
+  echo "Log in again (oc login ...) or point KUBECONFIG at a working kubeconfig, then rerun." >&2
+  exit 1
+fi
 RUN_ID="$(date +%s)"
 MCP_URL="${DEMO_MCP_URL:-http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp}"
 MCP_HOST="${DEMO_MCP_HOST:-}"
@@ -406,7 +413,14 @@ else
   for a in "${AGENTS[@]}"; do
     step=$((step + 1)); spec="${a%%=*}"; disp="${a#*=}"; [ "$disp" = "$a" ] && disp="${spec#*/}"
     ns="${spec%%/*}"; sa="${spec#*/}"
-    oc get sa "$sa" -n "$ns" >/dev/null 2>&1 || { echo "service account $ns/$sa not found" >&2; exit 1; }
+    if ! err="$(oc get sa "$sa" -n "$ns" 2>&1 >/dev/null)"; then
+      case "$err" in
+        *NotFound*|*"not found"*) echo "service account $ns/$sa not found" >&2 ;;
+        *) echo "could not check service account $ns/$sa: $err" >&2
+           echo "  oc is using context '$(oc config current-context 2>/dev/null)'; a Keycloak login expires after a few minutes. Log in again or set KUBECONFIG." >&2 ;;
+      esac
+      exit 1
+    fi
     echo "==> Hop $step: $disp (namespace $ns, service account $sa)"
     [ "$step" = "$CONTRAST_STEP" ] && echo "    contrast account: no RBAC — the refusal is the point"
     pod="demo-hop-${RUN_ID}-${step}"
