@@ -41,7 +41,7 @@
 # with DEMO_OGX_TOKEN, and records it as a "POST /v1/responses" client span with the real duration
 # and HTTP status (demo.simulated=false). The request carries the agent's W3C traceparent and
 # baggage user.id, so OGX's spans continue the same trace under this span. --ogx-model overrides
-# the model (default publishers/llm/models/qwen3-8b). --ogx-mcp adds a tools entry of type mcp
+# the model (default vllm-inference/publishers/llm/models/qwen3-8b: OGX prefixes the provider id). --ogx-mcp adds a tools entry of type mcp
 # pointing at the MCP gateway (the same in-cluster URL the --mcp-tool step uses), so OGX produces
 # list_mcp_tools and invoke_mcp_tool spans; OGX's service account then needs the gateway's RBAC
 # the agents have. The token: OGX with AUTH_ISSUER set (10-ogx.yaml) accepts only Keycloak tokens
@@ -66,7 +66,7 @@ usage() { sed -n '2,57p' "$0"; }
 USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
 MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
 MCP_CONTRAST="${DEMO_MCP_CONTRAST:-}"; CONTRAST_STEP=0
-OGX_URL="${DEMO_OGX_URL:-}"; OGX_MODEL="${DEMO_OGX_MODEL:-publishers/llm/models/qwen3-8b}"
+OGX_URL="${DEMO_OGX_URL:-}"; OGX_MODEL="${DEMO_OGX_MODEL:-vllm-inference/publishers/llm/models/qwen3-8b}"
 OGX_MCP=0; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -105,7 +105,7 @@ PIP="${PIP_PACKAGES:-opentelemetry-sdk opentelemetry-exporter-otlp-proto-http sp
 RUN_ID="$(date +%s)"
 MCP_URL="${DEMO_MCP_URL:-http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp}"
 MCP_HOST="${DEMO_MCP_HOST:-}"
-if [ -z "$MCP_HOST" ] && { [ -n "$MCP_TOOL" ] || [ -n "$MCP_LIST" ]; }; then
+if [ -z "$MCP_HOST" ] && { [ -n "$MCP_TOOL" ] || [ -n "$MCP_LIST" ] || [ "${OGX_MCP:-0}" = 1 ]; }; then
   MCP_HOST="mcp.$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)"
 fi
 python3 -c 'import json,sys; json.loads(sys.argv[1])' "$MCP_ARGS" 2>/dev/null \
@@ -165,8 +165,22 @@ def ogx_call(ctx_for_headers):
     url, model = os.environ["OGX_URL"].rstrip("/"), os.environ["OGX_MODEL"]
     body = {"model": model, "input": "Reply with one short sentence that greets the user."}
     if os.environ.get("OGX_MCP") == "1":
+        # A question only a tool can answer, so the model calls it and OGX records an
+        # invoke_mcp_tool span. allowed_tools keeps the tool list (and the prompt) small.
+        mcp_tool = os.environ.get("MCP_TOOL") or "openshift_pods_list_in_namespace"
+        body["input"] = ("Use the %s tool to list the pods in the namespace %s, then answer in one "
+                         "sentence with how many there are." % (mcp_tool, os.environ.get("NS", "default")))
+        # OGX is the MCP client here. It reaches the gateway through its public route (the
+        # in-cluster service URL needs a Host header OGX does not send; OGX trusts the ingress
+        # CA through spec.tls.trust), and sends the token from "authorization" as a bearer token
+        # (OGX rejects an Authorization key under "headers"), so the gateway's TokenReview sees
+        # this agent's service account and the MCP server applies the agent's RBAC.
+        satok = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
         body["tools"] = [{"type": "mcp", "server_label": "mcp-gateway",
-                          "server_url": os.environ["MCP_URL"], "require_approval": "never"}]
+                          "server_url": "https://%s/mcp" % os.environ["MCP_HOST"],
+                          "authorization": satok,
+                          "allowed_tools": [mcp_tool],
+                          "require_approval": "never"}]
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     tok = os.environ.get("OGX_TOKEN", "")
     if tok:

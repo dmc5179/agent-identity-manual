@@ -65,13 +65,13 @@ spec:
         value: ogx
       - name: POSTGRES_PASSWORD
         valueFrom: {secretKeyRef: {name: ogx-postgres, key: password}}
-      # TLS to the database: RDS PostgreSQL 15 and later sets rds.force_ssl=1, so the
-      # server rejects a plaintext connection. No sslmode setting exists to set: the
-      # env names above come from the image's /opt/app-root/config.yaml, which carries
-      # host, port, db, user and password only. libpq-based clients (psycopg2) default
-      # to sslmode=prefer, which negotiates TLS without verifying the server
-      # certificate, so the RDS handshake normally succeeds. If the connection still
-      # fails, the pod logs show the TLS error and the only lever is the client default.
+      # TLS to the database. RDS PostgreSQL 15 and later sets rds.force_ssl=1 and rejects a
+      # plaintext connection with: no pg_hba.conf entry for host ..., no encryption. OGX
+      # connects with asyncpg, and the distribution's config maps no env variable to its
+      # ssl_mode setting, so asyncpg falls back to PGSSLMODE. Without it, OGX 3.5.2
+      # connected in plain text and crash-looped (seen 2026-11-27).
+      - name: PGSSLMODE
+        value: require
       # Model provider: the MaaS gateway. base_url is the gateway root — the live
       # playground set https://maas.<apps domain>/v1 (not a per-model path); requests
       # pick the model with its full MaaS id, for example publishers/llm/models/qwen3-8b
@@ -85,7 +85,13 @@ spec:
       # VLLM_TLS_VERIFY: leave unset. The MaaS route certificate is signed by the
       # cluster's ingress CA; trust it through spec.tls.trust.caCertificates below
       # rather than turning verification off.
-  # tls:
-  #   trust:
-  #     caCertificates: [{name: ingress-ca, key: ca.crt}]   # the cluster ingress CA covers
-  #     the Keycloak route and the MaaS route (VLLM_URL) when either uses a private CA
+  # The cluster ingress CA covers the Keycloak route (AUTH_JWKS_URI) and the MaaS route
+  # (VLLM_URL) when they use the default private CA. The ConfigMap must be in this namespace
+  # and labeled ogx.io/watch: "true", or the operator never sees it:
+  #   oc get configmap default-ingress-cert -n openshift-config-managed \
+  #     -o jsonpath='{.data.ca-bundle\.crt}' > ingress-ca.pem
+  #   oc create configmap ingress-ca -n ${OGX_NAMESPACE} --from-file=ca.crt=ingress-ca.pem
+  #   oc label configmap ingress-ca -n ${OGX_NAMESPACE} ogx.io/watch=true
+  tls:
+    trust:
+      caCertificates: [{name: ingress-ca, key: ca.crt}]

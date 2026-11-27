@@ -236,7 +236,8 @@ it on.
 
 **OGX hop.** `--ogx-url <server>` (or `DEMO_OGX_URL`) makes the last agent end its run with one real
 request to OGX, `POST <url>/v1/responses` with model `DEMO_OGX_MODEL` (default
-`publishers/llm/models/qwen3-8b`). The request carries the agent's traceparent and `user.id` in
+`vllm-inference/publishers/llm/models/qwen3-8b`: OGX lists a model under its provider id plus the
+MaaS name, and answers 404 to the bare MaaS name). The request carries the agent's traceparent and `user.id` in
 baggage, so OGX's spans continue the same trace under a `POST /v1/responses` client span recorded by
 the agent (`demo.simulated=false`, the real HTTP status):
 
