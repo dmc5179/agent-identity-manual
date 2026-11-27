@@ -5,8 +5,11 @@
 #     runs every tool with the caller's own token. The same question asked as two users shows the
 #     platform enforcing identity per call: alice (an admin) gets the pod list, bob (edit on the
 #     playground's project only) gets the call refused (forbidden).
-#   - TLS trust for the OGXServer the dashboard creates for the playground: without it, the
-#     playground's call to the gateway route fails with a TLS certificate error.
+#   - The entry uses the gateway's in-cluster HTTP address, not its public route: the dashboard's
+#     gen-ai back end checks the server when you select Authorize and trusts only RHOAI's own CA
+#     bundle, so the route's ingress certificate fails with "x509: certificate signed by unknown
+#     authority" and the dashboard reports "authorization failed" (seen on RHOAI 3.5.2, 2026-11-27).
+#     The in-cluster address needs no certificate; the gateway still requires a token there.
 #   - The RoleBinding below is the only object this file applies:
 #       ./render.sh 15-playground-mcp.yaml --check   then   ./render.sh 15-playground-mcp.yaml --apply
 #     The rest needs cluster data and stays as commands: copy them from the rendered output
@@ -26,35 +29,25 @@
 # 1. Register the gateway as a playground MCP server (needs admin rights in redhat-ods-applications).
 #    ConfigMap gen-ai-aa-mcp-servers holds one data key per server, the key name is the server name
 #    in the MCP tab, and the playground lists every key. The entry for the gateway (JSON, one line):
-#      {"url":"https://mcp.${APPS_DOMAIN}/mcp","description":"Cluster MCP gateway: OpenShift tools, authenticated with your own token","transport":"streamable-http"}
+#      {"url":"http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp","description":"Cluster MCP gateway: OpenShift tools, authenticated with your own token","transport":"streamable-http"}
 #    If the ConfigMap already exists, another team may own it (on our lab an Argo CD application with
-#    selfHeal owned it and reverted added keys; on a customer cluster this is a normal manual step).
+#    selfHeal owned it, and a key added with the patch below survived its syncs; on a customer cluster
+#    this is a normal manual step).
 #    Add one key rather than replacing the object: a JSON merge patch touches only the mcp-gateway key.
 #      oc patch configmap gen-ai-aa-mcp-servers -n redhat-ods-applications --type=merge \
-#        -p '{"data":{"mcp-gateway":"{\"url\":\"https://mcp.${APPS_DOMAIN}/mcp\",\"description\":\"Cluster MCP gateway: OpenShift tools, authenticated with your own token\",\"transport\":\"streamable-http\"}"}}'
+#        -p '{"data":{"mcp-gateway":"{\"url\":\"http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp\",\"description\":\"Cluster MCP gateway: OpenShift tools, authenticated with your own token\",\"transport\":\"streamable-http\"}"}}'
 #    If it does not exist yet (check: oc get configmap gen-ai-aa-mcp-servers -n redhat-ods-applications),
 #    create it with the same single key:
 #      oc create configmap gen-ai-aa-mcp-servers -n redhat-ods-applications \
-#        --from-literal=mcp-gateway='{"url":"https://mcp.${APPS_DOMAIN}/mcp","description":"Cluster MCP gateway: OpenShift tools, authenticated with your own token","transport":"streamable-http"}'
+#        --from-literal=mcp-gateway='{"url":"http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp","description":"Cluster MCP gateway: OpenShift tools, authenticated with your own token","transport":"streamable-http"}'
 #    check: how soon the playground picks up a new key is untested; if the entry is missing from the
 #    MCP tab after the patch, close and reopen the playground.
 #
-# 2. TLS trust for the playground's OGX. The dashboard creates an OGXServer in the playground's
-#    project and gives it no trust for the cluster ingress CA, so its call to
-#    https://mcp.${APPS_DOMAIN}/mcp fails with a TLS certificate error. Two parts:
-#    a. The ingress CA as a ConfigMap in the playground's project (same ConfigMap and label as
-#       10-ogx.yaml uses; without the label the OGX operator never reads it):
-#         oc get configmap default-ingress-cert -n openshift-config-managed \
-#           -o jsonpath='{.data.ca-bundle\.crt}' > ingress-ca.pem
-#         oc create configmap ingress-ca -n <playground-namespace> --from-file=ca.crt=ingress-ca.pem
-#         oc label configmap ingress-ca -n <playground-namespace> ogx.io/watch=true
-#    b. Trust it on the playground's OGXServer (the shape matches spec.tls.trust in 10-ogx.yaml):
-#         oc patch ogxserver <ogxserver-name> -n <playground-namespace> --type=merge \
-#           -p '{"spec":{"tls":{"trust":{"caCertificates":[{"name":"ingress-ca","key":"ca.crt"}]}}}}'
-#       check: the dashboard creates that OGXServer and may rewrite it. Find the name with
-#       oc get ogxservers -n <playground-namespace> and re-check the patch after changing the
-#       playground. The missing trust was verified on RHOAI 3.5.2 (2026-11-27); the patch itself is
-#       not yet verified against a dashboard-managed OGXServer.
+# 2. Optional, only if you must use the public route instead (https://mcp.<apps domain>/mcp): both
+#    the dashboard's gen-ai back end and the playground's OGXServer then need the cluster ingress CA.
+#    The OGXServer takes it as in 10-ogx.yaml (a ConfigMap labeled ogx.io/watch: "true" plus
+#    spec.tls.trust.caCertificates); the dashboard back end only trusts RHOAI's CA bundle. The
+#    in-cluster address above avoids both.
 #
 # 3. The second user needs the playground's project to open the playground at all; edit is enough.
 #    edit grants nothing outside that project, which is the point: the demo question targets a
