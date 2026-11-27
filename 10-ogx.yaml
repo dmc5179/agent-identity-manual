@@ -51,6 +51,15 @@ spec:
         value: none
       - name: OTEL_LOGS_EXPORTER
         value: none
+      # OGX 3.5.2's FastAPI spans use the older HTTP attribute names (http.method,
+      # http.status_code, http.target). http/dup adds the current ones (http.request.method,
+      # http.response.status_code, url.path) next to them, so either kind of dashboard works.
+      - name: OTEL_SEMCONV_STABILITY_OPT_IN
+        value: http/dup
+      # Without this, every OGX request also records 50-100 PostgreSQL statement spans
+      # (BEGIN, SELECT, COMMIT) from its metadata store, which bury the agent and model spans.
+      - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+        value: asyncpg,sqlalchemy
       # PostgreSQL metadata store (required). Create the Secret first:
       #   scripts/ogx-database.sh secret < secrets/ogx-db.env   (rhoai-mass-aws)
       # which applies Secret ogx-postgres (key password) from the credentials file
