@@ -67,7 +67,7 @@ USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
 MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
 MCP_CONTRAST="${DEMO_MCP_CONTRAST:-}"; CONTRAST_STEP=0
 OGX_URL="${DEMO_OGX_URL:-}"; OGX_MODEL="${DEMO_OGX_MODEL:-vllm-inference/publishers/llm/models/qwen3-8b}"
-OGX_MCP=0; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
+OGX_MCP="${DEMO_OGX_MCP:-0}"; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) USER_ID="$2"; shift 2 ;;
