@@ -133,13 +133,32 @@ is not refreshed: `oc` in the workspace works for about 5 minutes after it start
 ```bash
 vi 06-maas-access.yaml                             # set <model> and <model-ns>
 ./render.sh 06-maas-access.yaml --apply            # Keycloak group + agent service accounts
-./render.sh 10-ogx.yaml --check                    # add the PostgreSQL environment variables first (see file notes)
-./render.sh 10-ogx.yaml --apply
+```
+
+OGX needs its database, its MaaS key and the ingress CA before 10-ogx.yaml applies. This is the
+order the live run of 2026-11-27 used; the pod went Ready about 1 minute after apply once the
+database worked:
+
+```bash
+scripts/ogx-database.sh create                     # cluster repository: role ogx + database ogx on
+                                                   # the RDS instance; writes secrets/ogx-db.env
+scripts/ogx-database.sh secret < secrets/ogx-db.env   # applies Secret ogx-postgres (OGX namespace)
+# Mint the OGX MaaS key as a MaaS user (the scripts/maas-user.sh flow in the cluster repository)
+# into Secret ogx-maas-key, key apikey: MaaS keys expire, at most 90 days on 3.5.2.
+oc get configmap default-ingress-cert -n openshift-config-managed \
+  -o jsonpath='{.data.ca-bundle\.crt}' > ingress-ca.pem   # the cluster ingress CA covers the MaaS
+                                                  # and Keycloak routes (10-ogx.yaml trusts it)
+oc create configmap ingress-ca -n "$OGX_NAMESPACE" --from-file=ca.crt=ingress-ca.pem
+oc label configmap ingress-ca -n "$OGX_NAMESPACE" ogx.io/watch=true   # without the label the
+                                                # operator never reads the ConfigMap
+vi vars.env                                        # OGX_DB_HOST: the endpoint in secrets/ogx-db.env
+./render.sh 10-ogx.yaml --check
+./render.sh 10-ogx.yaml --apply                    # wait for the OGXServer to go Ready (~1 min)
 ./render.sh 12-example-agent.yaml --apply          # replace the image with your agent
 ```
 
 When auth is on, OGX (10-ogx.yaml) accepts only Keycloak tokens whose `aud` claim includes the
-`ogx-api` audience; how to mint one for the demo is in section 5.
+`ogx-api` audience; how to mint one for the demo is in section 7.
 
 Optional: `11-authpolicy-agent-or-user.yaml` (gateway accepts a Keycloak user OR a SPIRE agent) and
 `13-service-mesh.yaml` (read it fully first: it can break OpenShift's Gateway API).
@@ -242,10 +261,13 @@ request to OGX, `POST <url>/v1/responses` with model `DEMO_OGX_MODEL` (default
 `vllm-inference/publishers/llm/models/qwen3-8b`: OGX lists a model under its provider id plus the
 MaaS name, and answers 404 to the bare MaaS name). The request carries the agent's traceparent and `user.id` in
 baggage, so OGX's spans continue the same trace under a `POST /v1/responses` client span recorded by
-the agent (`demo.simulated=false`, the real HTTP status):
+the agent (`demo.simulated=false`, the real HTTP status). In the live run of 2026-11-27 a request
+without tools took about 4.7 s, and one with a single MCP tool call 15-17 s (two model rounds on
+one NVIDIA L4, qwen3-8b):
 
 ```bash
-DEMO_OGX_TOKEN=<keycloak-user-token> ./demo-trace.sh --user alice --ogx-url http://ogx-server.agents.svc.cluster.local:8321 \
+DEMO_OGX_TOKEN=<keycloak-user-token> ./demo-trace.sh --user alice \
+  --ogx-url http://ogx-service.<ns>.svc.cluster.local:8321 \
   --ogx-mcp agents/planner=Planner agents/researcher=Researcher
 ```
 
@@ -258,12 +280,17 @@ unchanged. Mint `DEMO_OGX_TOKEN` as a user token requested with scope `openid og
 request to the realm's token endpoint, in the shape `scripts/lib-oc-token.sh` (cluster repository)
 makes, with the extra scope; that script's plain `openid` token does not carry the audience. Pass
 the token through `DEMO_OGX_TOKEN`; it is never printed. Without it, an OGX with auth on refuses
-the request
-with 401 and the span shows the refusal, which is a useful negative case. `--ogx-mcp`
+the request with 401 and the span shows the refusal, which is a useful negative case. `--ogx-mcp`
 (`DEMO_OGX_MCP=1`) hands OGX the MCP gateway as a tool server, so OGX produces `list_mcp_tools` and
-`invoke_mcp_tool` spans in the same trace; OGX's service account then needs the gateway RBAC the
-agents have. `ogx-trace-check.sh <trace id>` checks the trace against every expectation in
-TRACE-FORMAT.md's OGX section and prints PASS or FAIL per field.
+`invoke_mcp_tool` spans in the same trace — a prompt that needs no tool produces `list_mcp_tools`
+only; OGX's service account then needs the gateway RBAC the agents have. The tools entry the
+script builds follows what OGX accepts: the gateway credentials go in `authorization` (the bare
+token), an `Authorization` key under `headers` is rejected with 400, and without credentials the
+gateway answers 401 and OGX passes the refusal on. `server_url` must be the gateway's public https
+route: the in-cluster service URL needs a Host header OGX does not send. `allowed_tools` limits
+the tool list; leaving every tool available costs about 3900 prompt tokens. `ogx-trace-check.sh
+[--ogx-mcp] <trace id>` checks the trace against every expectation in TRACE-FORMAT.md's OGX
+section and prints PASS or FAIL per field.
 
 What to say in the demo: each step shows *which agent* (its SPIFFE identity) acted for *which user*.
 Those two labels are written by the agents (here, by the probe) and are not yet verified by the platform.
@@ -328,6 +355,14 @@ MCPServerRegistration to the versions it really serves.
 | Users lose access they had through a Group after the switch | Group membership now comes only from the token's `groups` claim: create the Keycloak group with the same name and add the users (3) |
 | An app shows a login page that never completes after the switch | It uses an OpenShift OAuth client or oauth-proxy; give it its own Keycloak client (3) |
 | OGX pod crash-loops with `storage.backends.*_postgres` errors | The default distribution needs PostgreSQL env (10) |
+| OGX log shows `no pg_hba.conf entry for host ..., no encryption` | RDS sets `rds.force_ssl` and OGX connected in plain text: no env maps to its ssl_mode, so set `PGSSLMODE=require` (10) |
+| `password authentication failed for user ogx` | Can mean the role does not exist (PostgreSQL sends the same message): `ogx-database.sh create` had silently not run its SQL; run it and apply its Secret again (4) |
+| `ogx-database.sh create` fails at `CREATE DATABASE ... OWNER ogx` | On PostgreSQL 16, RDS wants the master user to be a member of role ogx first (4) |
+| OGX refuses the MaaS or Keycloak TLS certificate | The ingress CA ConfigMap is missing or unlabeled: create it in the OGX namespace and label it `ogx.io/watch: "true"` (4) |
+| OGX answers 404 "Model '...' not found" for a MaaS model | OGX lists the model as `vllm-inference/<MaaS model id>`: send that full id, not the bare MaaS name (7) |
+| OGX answers 401 "Invalid JWT token" to a Keycloak token | The token lacks the `ogx-api` audience: request it with scope `openid ogx-api` (7) |
+| OGX returns 400 for the `--ogx-mcp` tools entry | The gateway credentials were under `headers`: put the bare token in `authorization`, and set `server_url` to the gateway's public https route (7) |
+| The MCP gateway answers 401 during the OGX hop | The tools entry carried no credentials: add `authorization` with a token the gateway accepts (7) |
 | Agent logs "Failed to export metrics/logs ... 404" | Collector takes traces only; 08 sets `OTEL_METRICS_EXPORTER`/`OTEL_LOGS_EXPORTER=none` |
 | Trace query to Tempo times out | Query through the gateway or the console; NetworkPolicies block direct access |
 | Agent B's span starts a new trace | Header names not lowercased before `propagate.extract` |
