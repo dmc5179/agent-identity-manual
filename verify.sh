@@ -5,6 +5,7 @@ set -uo pipefail
 cd "$(dirname "$0")"; [ -f vars.env ] && { set -a; . ./vars.env; set +a; }
 ok()  { printf '  \033[32m✓\033[0m %s\n' "$*"; }
 bad() { printf '  \033[31m✗\033[0m %s\n' "$*"; }
+warn() { printf '  \033[33m!\033[0m %s\n' "$*"; }
 chk() { if eval "$2" >/dev/null 2>&1; then ok "$1"; else bad "$1"; fi; }
 
 echo "ZTWIM / SPIRE"
@@ -38,4 +39,33 @@ else
 fi
 
 echo "OGX"
-oc get ogxservers.ogx.io -A --no-headers 2>/dev/null | awk '{print "    "$1"/"$2" "$3}' || true
+sv=$(oc get ogxservers.ogx.io -A --no-headers 2>/dev/null | awk 'NR==1{print $1, $2}')
+if [ -z "$sv" ]; then
+  echo "    not installed - skipping OGX checks"
+else
+  read -r ons oname <<<"$sv"; ns="${OGX_NAMESPACE:-$ons}"
+  chk "OGXServer $oname exists in $ns" "oc get ogxservers.ogx.io $oname -n $ns"
+  ar=$(oc get deployments.apps "$oname" -n "$ns" -o jsonpath='{.status.availableReplicas}' 2>/dev/null)
+  [ "${ar:-0}" -ge 1 ] && ok "deployment $oname has an available replica" || bad "deployment $oname has no available replica"
+  # Secret keys are checked by name only, never by value.
+  pk=$(oc get secret ogx-postgres -n "$ns" -o go-template='{{range $k,$_ := .data}}{{$k}} {{end}}' 2>/dev/null)
+  [[ " $pk " == *" password "* ]] && ok "secret ogx-postgres has key password" || bad "secret ogx-postgres has no key password"
+  mk=$(oc get secret ogx-maas-key -n "$ns" -o go-template='{{range $k,$_ := .data}}{{$k}} {{end}}' 2>/dev/null)
+  [[ " $mk " == *" apikey "* ]] && ok "secret ogx-maas-key has key apikey" || bad "secret ogx-maas-key has no key apikey"
+  cm=$(oc get ogxservers.ogx.io "$oname" -n "$ns" -o jsonpath='{.spec.tls.trust.caCertificates[0].name}' 2>/dev/null)
+  if [ -n "$cm" ]; then
+    chk "configmap $cm exists and is labeled ogx.io/watch=true" "oc get configmap $cm -n $ns -o jsonpath='{.metadata.labels.ogx\\.io/watch}' | grep -qx true"
+  else
+    echo "    spec.tls.trust.caCertificates is not set"
+  fi
+  ev=$(oc get ogxservers.ogx.io "$oname" -n "$ns" -o jsonpath='{range .spec.workload.overrides.env[*]}{.name}{"\n"}{end}' 2>/dev/null)
+  grep -qx OTEL_SERVICE_NAME <<<"$ev" && ok "env OTEL_SERVICE_NAME is set" || bad "env OTEL_SERVICE_NAME is not set"
+  grep -qx PGSSLMODE <<<"$ev" && ok "env PGSSLMODE is set" || warn "env PGSSLMODE is not set - RDS refuses plaintext connections"
+  if [ -n "${KEYCLOAK_ISSUER:-}" ]; then
+    if kc=$(curl -skf "$KEYCLOAK_ISSUER/.well-known/openid-configuration" 2>/dev/null) && [ -n "$kc" ]; then
+      grep -q '"ogx-api"' <<<"$kc" && ok "Keycloak realm advertises the ogx-api scope" || warn "Keycloak realm does not advertise the ogx-api scope - OGX tokens need it"
+    else
+      warn "Keycloak realm discovery at $KEYCLOAK_ISSUER/.well-known/openid-configuration failed"
+    fi
+  fi
+fi
