@@ -29,6 +29,13 @@
 # --mcp-list prints the tools the MCP gateway offers (one DEMO_TOOL=<name> line each) as the FIRST
 # agent's service account, in one short-lived pod, and exits without tracing.
 #
+# Contrast step (--mcp-contrast SPEC, or DEMO_MCP_CONTRAST in demo.env): one extra hop after the
+# last agent, run as that service account, making the SAME --mcp-tool call with the same
+# --mcp-args. The account must have no RBAC (create it with "oc create sa NAME -n NS" and no
+# RoleBindings), so the MCP server refuses the call (forbidden); the span records
+# mcp.tool.is_error=true and the script prints the refusal as an expected result, not a failure.
+# Requires --mcp-tool; see GUIDE.md section 7.
+#
 # demo.env (optional, see demo.env.example): DEMO_USER, DEMO_AGENTS, DEMO_MCP_*, IMAGE, OTLP_ENDPOINT.
 # Command-line values win over demo.env.
 # --dry-run prints the hops and the pods it would create, and changes nothing.
@@ -40,16 +47,18 @@
 set -euo pipefail
 cd "$(dirname "$0")"; [ -f vars.env ] && { set -a; . ./vars.env; set +a; }
 [ -f demo.env ] && { set -a; . ./demo.env; set +a; }
-usage() { sed -n '2,39p' "$0"; }
+usage() { sed -n '2,45p' "$0"; }
 
 USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
 MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
+MCP_CONTRAST="${DEMO_MCP_CONTRAST:-}"; CONTRAST_STEP=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --user) USER_ID="$2"; shift 2 ;;
     --mcp-tool) MCP_TOOL="$2"; shift 2 ;;
     --mcp-list) MCP_LIST=1; shift ;;
     --mcp-args) MCP_ARGS="$2"; shift 2 ;;
+    --mcp-contrast) MCP_CONTRAST="$2"; shift 2 ;;
     --entry-url) ENTRY_URL="$2"; shift 2 ;;
     --dry-run) DRY=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -59,6 +68,14 @@ while [ $# -gt 0 ]; do
 done
 if [ ${#AGENTS[@]} -eq 0 ] && [ -n "${DEMO_AGENTS:-}" ]; then read -r -a AGENTS <<<"$DEMO_AGENTS"; fi
 [ -n "$ENTRY_URL" ] || [ ${#AGENTS[@]} -gt 0 ] || { usage; exit 2; }
+if [ -n "$MCP_CONTRAST" ]; then
+  [ -n "$MCP_TOOL" ] || { echo "--mcp-contrast requires --mcp-tool: the contrast hop makes the same call" >&2; exit 2; }
+  [ -z "$ENTRY_URL" ] || { echo "--mcp-contrast adds its own hop and does not apply with --entry-url" >&2; exit 2; }
+  spec="${MCP_CONTRAST%%=*}"
+  case "$spec" in */*) [ "${spec#*/}" != "" ] || spec="" ;; *) spec="" ;; esac
+  [ -n "$spec" ] || { echo "--mcp-contrast expects namespace/serviceaccount[=Name]: $MCP_CONTRAST" >&2; exit 2; }
+  AGENTS+=("$MCP_CONTRAST"); CONTRAST_STEP=${#AGENTS[@]}
+fi
 
 NS_TRACING="${TRACING_NAMESPACE:-tracing}"
 OTLP="${OTLP_ENDPOINT:-http://otel-collector.${NS_TRACING}.svc.cluster.local:4318}"
@@ -68,7 +85,7 @@ RUN_ID="$(date +%s)"
 MCP_URL="${DEMO_MCP_URL:-http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080/mcp}"
 MCP_HOST="${DEMO_MCP_HOST:-}"
 if [ -z "$MCP_HOST" ] && { [ -n "$MCP_TOOL" ] || [ -n "$MCP_LIST" ]; }; then
-  MCP_HOST="mcp.$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null)"
+  MCP_HOST="mcp.$(oc get ingresses.config.openshift.io cluster -o jsonpath='{.spec.domain}' 2>/dev/null || true)"
 fi
 python3 -c 'import json,sys; json.loads(sys.argv[1])' "$MCP_ARGS" 2>/dev/null \
   || { echo "--mcp-args is not valid JSON: $MCP_ARGS" >&2; exit 2; }
@@ -266,6 +283,7 @@ if [ $DRY -eq 1 ]; then
     if oc get sa "$sa" -n "$ns" >/dev/null 2>&1; then ok="exists"; else ok="NOT FOUND"; fi
     echo "  hop $step: $disp -> pod demo-hop-${RUN_ID}-${step} in $ns as serviceaccount $sa ($ok)"
     echo "          expected spiffe.id: spiffe://<trust-domain>/ns/$ns/sa/$sa"
+    [ "$step" = "$CONTRAST_STEP" ] && echo "          contrast: the same tool call, no RBAC — a refusal is expected"
   done
   exit 0
 fi
@@ -284,6 +302,7 @@ else
     ns="${spec%%/*}"; sa="${spec#*/}"
     oc get sa "$sa" -n "$ns" >/dev/null 2>&1 || { echo "service account $ns/$sa not found" >&2; exit 1; }
     echo "==> Hop $step: $disp (namespace $ns, service account $sa)"
+    [ "$step" = "$CONTRAST_STEP" ] && echo "    contrast account: no RBAC — the refusal is the point"
     pod="demo-hop-${RUN_ID}-${step}"
     AGENT_NAME="$disp" STEP="$step" NS="$ns" SA="$sa" POD="$pod" IMAGE="$IMAGE" PIP="$PIP" OTLP="$OTLP" \
     USER_ID="$USER_ID" TRACEPARENT="$TRACEPARENT" BAGGAGE="$BAGGAGE" HOP_PY="$HOP_PY" \
@@ -323,7 +342,16 @@ print(json.dumps({"apiVersion": "v1", "kind": "Pod",
     mcp=$(sed -n 's/^DEMO_MCP=//p' <<<"$out")
     if [ -n "$mcp" ]; then
       IFS='|' read -r mtool merr mms msum <<<"$mcp"
-      echo "    MCP tools/call $mtool via $MCP_HOST: $([ "$merr" = True ] && echo ERROR || echo ok) in ${mms} ms: ${msum:0:110}"
+      if [ "$step" = "$CONTRAST_STEP" ]; then
+        if [ "$merr" = True ]; then
+          echo "    MCP tools/call $mtool as $sa: REFUSED AS EXPECTED in ${mms} ms: ${msum:0:110}"
+        else
+          echo "    UNEXPECTED: the contrast account was NOT refused; it called $mtool ok in ${mms} ms." >&2
+          echo "    Check that $ns/$sa has no RoleBindings, or pick an account with none." >&2
+        fi
+      else
+        echo "    MCP tools/call $mtool via $MCP_HOST: $([ "$merr" = True ] && echo ERROR || echo ok) in ${mms} ms: ${msum:0:110}"
+      fi
     fi
   done
 fi

@@ -205,6 +205,22 @@ OpenShift runs the tool with the caller's token, so what the agent may see is de
 RBAC: the one identity check in the demo the platform itself enforces. Leave `DEMO_MCP_TOOL` unset
 and the step is skipped. `$NS` in the arguments becomes the agent's namespace.
 
+**Contrast step.** `--mcp-contrast namespace/serviceaccount=Name` (or `DEMO_MCP_CONTRAST`) adds one
+more hop after the last agent, run as that service account, which makes the same tool call with the
+same arguments. Make that account with no permissions, so the refusal is the point:
+
+```bash
+oc create sa demo-no-rbac -n agents    # no RoleBindings: the account has no permissions
+```
+
+The MCP server runs each tool with the caller's own token, so the account without RBAC is refused
+(`forbidden`). The trace then shows two `tools/call` spans in the same waterfall: one `ok`
+(`mcp.tool.is_error=false`) from the agent with rights, and one error from the contrast account
+(`mcp.tool.is_error=true`, the refusal text truncated in the span status, `demo.simulated=false`).
+The script prints the refusal as an expected result and exits 0. If the contrast account is NOT
+refused, the script says so: check that the account has no RoleBindings in its namespace. The flag
+requires `--mcp-tool`.
+
 For agents that are already instrumented and expose HTTP, `./demo-trace.sh --user alice --entry-url
 https://<agent>` sends one request with a new trace and the user in baggage, and the real agents carry
 it on.
