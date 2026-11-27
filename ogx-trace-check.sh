@@ -1,23 +1,33 @@
 #!/usr/bin/env bash
 # ogx-trace-check.sh - check one demo trace against every expectation TRACE-FORMAT.md's OGX
 # sections list, and print PASS or FAIL for each. Read through the Tempo gateway, the same way
-# trace-query.sh reads a trace (short-lived token for the trace-reader service account).
+# trace-query.sh reads a trace (short-lived token for the trace-reader service account), or
+# check a saved OTLP JSON file offline.
 #   ./ogx-trace-check.sh [--ogx-mcp] <trace-id>
+#   ./ogx-trace-check.sh [--ogx-mcp] --file <saved-trace.json>
 # --ogx-mcp adds the list_mcp_tools and invoke_mcp_tool checks; pass it when the demo run used
-# demo-trace.sh's --ogx-mcp. User identity on OGX spans is reported as INFO either way:
+# demo-trace.sh's --ogx-mcp. The SERVER span check accepts both HTTP attribute namings (the
+# older http.method / http.status_code set, the current http.request.method /
+# http.response.status_code set, or both, which OTEL_SEMCONV_STABILITY_OPT_IN=http/dup gives)
+# and reports which it saw. User identity on OGX spans is reported as INFO either way:
 # TRACE-FORMAT.md documents that OGX adds none.
 set -euo pipefail
 cd "$(dirname "$0")"; [ -f vars.env ] && { set -a; . ./vars.env; set +a; }
 OGX_MCP=0
+MODE="gateway"
+file=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --ogx-mcp) OGX_MCP=1; shift ;;
-    -h|--help) sed -n '2,9p' "$0"; exit 0 ;;
+    --file) MODE="file"; shift; file="${1:-}"; [ -n "$file" ] || { echo "Error: --file needs a path" >&2; exit 2; }; shift ;;
+    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) tid="$1"; shift ;;
   esac
 done
-tid="${tid:-}"; [ -n "$tid" ] || { sed -n '2,9p' "$0"; exit 2; }
+if [ "$MODE" = "gateway" ]; then
+  tid="${tid:-}"; [ -n "$tid" ] || { sed -n '2,14p' "$0"; exit 2; }
+fi
 
 ns="${TRACING_NAMESPACE:-tracing}"
 
@@ -71,13 +81,31 @@ srv = [s for s in ogx if s["name"] == "POST /v1/responses"]
 names = ", ".join(sorted({s["name"] for s in ogx})) or "none"
 if srv:
     a = srv[0]["attrs"]
-    ok = (a.get("http.request.method") == "POST" and "http.route" in a
-          and "http.response.status_code" in a)
-    check(ok, "SERVER span POST /v1/responses with http.request.method, http.route, http.response.status_code",
-          "method=%s route=%s status=%s" % (a.get("http.request.method"), a.get("http.route"),
-                                            a.get("http.response.status_code")))
+    # The instrumentation emits the older HTTP semantic-convention names by default
+    # (http.method, http.status_code, http.target); with
+    # OTEL_SEMCONV_STABILITY_OPT_IN=http/dup it adds the current ones next to them.
+    # Accept either, and say which was seen.
+    current = (a.get("http.request.method") == "POST"
+               and "http.route" in a and "http.response.status_code" in a)
+    older = (a.get("http.method") == "POST"
+             and "http.route" in a and "http.status_code" in a)
+    if current and older:
+        style = "both (OTEL_SEMCONV_STABILITY_OPT_IN=http/dup)"
+    elif current:
+        style = "current (http.request.method)"
+    elif older:
+        style = "older (http.method)"
+    else:
+        style = "unrecognized"
+    check(current or older, "SERVER span POST /v1/responses with method, route and status attributes",
+          "naming: %s; method=%s route=%s status=%s" % (
+              style, a.get("http.request.method", a.get("http.method")), a.get("http.route"),
+              a.get("http.response.status_code", a.get("http.status_code")))
+          if (current or older) else
+          "naming: unrecognized; HTTP keys present: " +
+          (", ".join(sorted(k for k in a if k.startswith(("http", "url.", "client.", "server.")))) or "none"))
 else:
-    check(False, "SERVER span POST /v1/responses with http.request.method, http.route, http.response.status_code",
+    check(False, "SERVER span POST /v1/responses with method, route and status attributes",
           "no such span; OGX spans found: " + names)
 
 # The demo's last agent opened a CLIENT span and injected its traceparent into the request, so
@@ -145,6 +173,12 @@ print("Summary: %d PASS, %d FAIL, %d INFO (expectations from TRACE-FORMAT.md)"
       % (npass, nfail, len(infos)))
 sys.exit(1 if nfail else 0)
 PY
+
+if [ "$MODE" = "file" ]; then
+  [ -f "$file" ] || { echo "Error: no such file: $file" >&2; exit 1; }
+  OGX_MCP="$OGX_MCP" python3 -c "$CHECK_PY" < "$file"
+  exit
+fi
 
 oc create sa trace-reader -n "$ns" --dry-run=client -o yaml | oc apply -f - >/dev/null
 oc create clusterrolebinding trace-reader --clusterrole=tempo-agents-traces-reader \
