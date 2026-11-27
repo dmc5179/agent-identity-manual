@@ -59,6 +59,9 @@ cp demo.env.example demo.env && vi demo.env
 - To show usage and enforcement numbers on dashboards beside the traces, apply
   `14-console-dashboards.yaml` ([GUIDE 7](GUIDE.md#dashboards-for-the-demo)): the RHOAI Usage
   dashboard (Technology Preview) plus an `agent-gateways` dashboard for the MCP gateway.
+- To show the identity check in the gen AI playground itself, apply `15-playground-mcp.yaml` and
+  follow [Playground: one question, two users](GUIDE.md#playground-one-question-two-users): the same
+  question asked as two users, pods for one and forbidden for the other.
 
 ## If something fails
 

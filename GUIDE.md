@@ -382,6 +382,24 @@ in only one version (for example the Red Hat Offline Knowledge Portal MCP server
 tool list of clients on the other version. Set `spec.supportedProtocolVersions` on its
 MCPServerRegistration to the versions it really serves.
 
+### Playground: one question, two users
+
+Apply `15-playground-mcp.yaml` and the commands in its header: the gateway as a ConfigMap key, the
+ingress CA trust for the playground's OGXServer, and edit on the playground's project for the second
+user. Then, in the RHOAI dashboard, open the playground and ask one question as two users:
+
+1. Mint one token per user: `./ogx-token.sh alice`, `./ogx-token.sh bob` (the gateway accepts these
+   tokens). Tokens last minutes, and the playground keeps one only for the browser session.
+2. In the Configure panel's MCP tab, tick `mcp-gateway`, open the auth icon, paste alice's token,
+   and select **Authorize**. The wrench icon lists the server's tools.
+3. Ask: List the pods in the namespace `<ns>`, a namespace alice can read and bob has no role in
+   (not the playground's project, where edit includes listing pods). Alice gets the pod list.
+4. Select **Authorize** again with bob's token and ask the same question: the answer reports the tool
+   call as forbidden. The MCP server runs each tool with the caller's own token; OpenShift RBAC decided.
+
+Two likely failures: a TLS error to the route means the trust step is missing (the ConfigMap plus the
+OGXServer patch); no `mcp-gateway` in the MCP tab means the ConfigMap key is missing or was reverted.
+
 ## Troubleshooting
 
 | Symptom | Cause / fix |

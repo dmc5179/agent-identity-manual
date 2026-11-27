@@ -50,6 +50,7 @@ issues that affect it.
 | 12 | `12-example-agent.yaml` | 3, 8 | no |
 | 13 | `13-service-mesh.yaml` (optional) | see the file: read before applying | can break Gateway API |
 | 14 | `14-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
+| 15 | `15-playground-mcp.yaml` (optional) | 8 (MCP gateway); a tool-calling model and a playground in one project | no |
 
 ZTWIM first, then SPIRE, as SPIRE reads the trust domain and cluster name from the ZTWIM resource.
 If you plan to use SPIRE as the Service Mesh CA (13), set `CREATE_ONLY_MODE=true` on the ZTWIM
@@ -86,6 +87,7 @@ files: each file gives the `oc create secret` command.
 | `demo-run.sh` | Verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, and the step flow (full run, `--dry-run`, `--skip-ogx`, `--step 3`, a failing step) against stub helpers. Not yet run against the lab |
 | TRACE-FORMAT.md | OTLP structure from a real trace read back from Tempo; OGX span names read from the OGX 3.5.2 server image and confirmed against live OGX traces (2026-11-27); metric names read from the image |
 | 14 | Patch targets and fields from the RHOAI 3.5 docs and `oc explain` on 3.5.2; the four queries are metrics that carried data on the lab's user-workload monitoring (2026-11-27). Not applied: copy the datasource from `dashboard-3-maas-usage-admin` first (the file says how) |
+| 15 | The ConfigMap entry format, the MCP tab flow, gateway acceptance of `ogx-token.sh` tokens, and the per-user RBAC result were checked on our lab (RHOAI 3.5.2, 2026-11-27), from the RHOAI 3.5 playground docs. The OGXServer TLS patch is not verified: the dashboard creates and may rewrite that object (check: in the file) |
 
 ## Sources
 
