@@ -318,7 +318,9 @@ with pip. On a disconnected cluster, set `IMAGE` in `demo.env` to an image that 
 On the console's **Observe → Traces** page (Cluster Observability Operator distributed tracing UI
 plugin), pick the TempoStack and tenant, then paste a TraceQL query into the search box. If the page
 shows nothing, widen the time range first: the default window misses a trace made a few minutes
-earlier. The attribute names are the ones TRACE-FORMAT.md documents; mind the scope, `service.name`
+earlier. The list also shows only a limited number of traces, so in a busy tenant a trace can be
+missing even inside the right window: raise the trace limit, or sort the list by span count, which
+brings a full OGX run (agents, OGX, model and MCP spans) to the top. The attribute names are the ones TRACE-FORMAT.md documents; mind the scope, `service.name`
 is a resource attribute, `user.id`, `spiffe.id`, `mcp.tool.is_error` and the `gen_ai.*` counts are
 span attributes.
 
