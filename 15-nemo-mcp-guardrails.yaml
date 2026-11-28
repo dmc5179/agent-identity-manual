@@ -1,10 +1,10 @@
-# Step 17: NeMo Guardrails on the MCP gateway from 16 (GUIDE 8). Every tool call through the
+# Step 15: NeMo Guardrails on the MCP gateway from 14 (GUIDE 8). Every tool call through the
 # gateway is checked: the tool call's ARGUMENTS go to NeMo before the proxy sends them to the
 # backend server, and the tool RESULT content goes to NeMo before it returns to the client. A
 # blocked request returns HTTP 403 "blocked by guardrails" to the client; a blocked tool result
 # returns to the client as an MCP tool result with isError true and the text "blocked by
 # guardrails". The checks are independent of the gateway's authentication and authorization
-# (the AuthPolicy in 16 still runs).
+# (the AuthPolicy in 14 still runs).
 # Docs: RHCL 1.5, Secure your traffic, ch. 7 "Enable guardrails on MCP gateway"
 #   https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.5/html-single/secure_your_traffic/index
 #   RHOAI 3.5, Enabling AI safety with guardrails (the NemoGuardrails CR and the rails ConfigMap).
@@ -13,14 +13,14 @@
 #   it to the MCP gateway, and this file uses only that path: no BBR ext_proc plugin, and no
 #   EnvoyFilter of our own (the RHOAI docs' mcpGateway discovery path is not used here).
 # Prerequisites:
-#   - 16-mcp-gateway.yaml applied: the MCPGatewayExtension mcp-gateway in namespace mcp-gateway
+#   - 14-mcp-gateway.yaml applied: the MCPGatewayExtension mcp-gateway in namespace mcp-gateway
 #     targeting the Gateway openshift-ingress/mcp-gateway, with at least one MCPServerRegistration.
 #   - RHOAI 3.5 with the TrustyAI component set to Managed in the DataScienceCluster, so the
 #     TrustyAI operator can deploy the NeMo Guardrails server.
 #   - The NeMo Guardrails server must run in the SAME namespace as the MCP gateway (mcp-gateway):
 #     every object below is written there.
 # Apply in the order written (ConfigMap, NemoGuardrails, Secret, then the annotation):
-#   ./render.sh 17-nemo-mcp-guardrails.yaml --check   then   ./render.sh 17-nemo-mcp-guardrails.yaml --apply
+#   ./render.sh 15-nemo-mcp-guardrails.yaml --check   then   ./render.sh 15-nemo-mcp-guardrails.yaml --apply
 #   Wait for the NeMo server pod and Service to appear in mcp-gateway (oc get pods,svc -n
 #   mcp-gateway), and correct the Secret's url if the Service name or port differs. Then enable the
 #   checks with the annotation command at the end of this file, and check that the extension is
@@ -111,7 +111,7 @@ stringData:
     model: unused-built-in-rails-only
     failMode: allow
 type: guardrails/external/nemo
-# Enable the checks: an annotation on the MCPGatewayExtension from 16, not a new object.
+# Enable the checks: an annotation on the MCPGatewayExtension from 14, not a new object.
 #   oc annotate mcpgatewayextensions mcp-gateway -n mcp-gateway \
 #     mcp.kuadrant.io/guardrails-ref=nemo-guardrails --overwrite
 # Optional, per server only (extends the global config; the global rails run first): pin config IDs

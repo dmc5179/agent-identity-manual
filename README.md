@@ -2,7 +2,7 @@
 
 Bare YAML for a cluster where the operators are **installed but not configured**: ZTWIM, Red Hat
 OpenShift AI 3.5 (OGX, MaaS), Connectivity Link 1.5, Red Hat build of OpenTelemetry, Tempo, the
-Cluster Observability Operator and OpenShift Service Mesh 3. No AutoShift, one optional Helm step (the MCP server for Red Hat OpenShift, in 16).
+Cluster Observability Operator and OpenShift Service Mesh 3. No AutoShift, one optional Helm step (the MCP server for Red Hat OpenShift, in 14).
 
 **Start with [QUICKSTART.md](QUICKSTART.md)**, a one-page path to build the environment and run the demo. [GUIDE.md](GUIDE.md) has the steps, commands, checks and troubleshooting. Helpers: `render.sh` (fills
 `vars.env` into a file, then prints, dry-runs or applies it), `verify.sh` (one line per component), `trace-query.sh`
@@ -51,10 +51,10 @@ issues that affect it.
 | 11 | `11-authpolicy-agent-or-user.yaml` (optional) | 2, RHCL, an HTTPRoute | no |
 | 12 | `12-example-agent.yaml` | 3, 8 | no |
 | 13 | `13-service-mesh.yaml` (optional) | see the file: read before applying | can break Gateway API |
-| 14 | `14-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
-| 15 | `15-playground-mcp.yaml` (optional) | 8 (MCP gateway); a tool-calling model and a playground in one project | no |
-| 16 | `16-mcp-gateway.yaml` | Connectivity Link 1.5 (MCP gateway operator), a Kuadrant CR; the MCP server for Red Hat OpenShift installed by Helm; apply before 15 | no |
-| 17 | `17-nemo-mcp-guardrails.yaml` (optional) | 16; the TrustyAI component Managed in the DataScienceCluster | no |
+| 14 | `14-mcp-gateway.yaml` | Connectivity Link 1.5 (MCP gateway operator), a Kuadrant CR; the MCP server for Red Hat OpenShift installed by Helm; apply before 17 | no |
+| 15 | `15-nemo-mcp-guardrails.yaml` (optional) | 14; the TrustyAI component Managed in the DataScienceCluster | no |
+| 16 | `16-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
+| 17 | `17-playground-mcp.yaml` (optional) | 14 (MCP gateway); a tool-calling model and a playground in one project | no |
 
 ZTWIM first, then SPIRE, as SPIRE reads the trust domain and cluster name from the ZTWIM resource.
 If you plan to use SPIRE as the Service Mesh CA (13), set `CREATE_ONLY_MODE=true` on the ZTWIM
@@ -91,9 +91,9 @@ files: each file gives the `oc create secret` command.
 | `demo-run.sh` | Verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, and the step flow (full run, `--dry-run`, `--skip-ogx`, `--step 3`, a failing step) against stub helpers. Not yet run against the lab |
 | `show-identity.sh` | Verified offline: `bash -n`, `shellcheck` with 0 warnings, and the inline Python against a fake JWT (claims, remaining lifetime, no token or signature printed) and a stub `oc` (default target from `demo.env`, `--help`, a failed login). The SPIFFE ID fallback path is exercised; a live py-spiffe fetch is not (needs a cluster) |
 | TRACE-FORMAT.md | OTLP structure from a real trace read back from Tempo; OGX span names read from the OGX 3.5.2 server image and confirmed against live OGX traces (2026-11-27); metric names read from the image |
-| 14 | Patch targets and fields from the RHOAI 3.5 docs and `oc explain` on 3.5.2; the four queries are metrics that carried data on the lab's user-workload monitoring (2026-11-27). Not applied: copy the datasource from `dashboard-3-maas-usage-admin` first (the file says how) |
-| 15 | The ConfigMap entry format, the MCP tab flow, gateway acceptance of `ogx-token.sh` tokens, and the per-user RBAC result were checked on our lab (RHOAI 3.5.2, 2026-11-27), from the RHOAI 3.5 playground docs. The OGXServer TLS patch is not verified: the dashboard creates and may rewrite that object (check: in the file) |
-| 17 | Docs only (RHCL 1.5 ch. 7 "Enable guardrails on MCP gateway", RHOAI 3.5 guardrails): not applied to the lab. The NeMo Service name and port in the Secret, and the `enable-auth` value on the NemoGuardrails CR, are marked `check:` in the file. The `--mcp-args-guarded` demo option was verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, `--dry-run` with a stub `oc`, and the plan and report paths |
+| 15 | Docs only (RHCL 1.5 ch. 7 "Enable guardrails on MCP gateway", RHOAI 3.5 guardrails): not applied to the lab. The NeMo Service name and port in the Secret, and the `enable-auth` value on the NemoGuardrails CR, are marked `check:` in the file. The `--mcp-args-guarded` demo option was verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, `--dry-run` with a stub `oc`, and the plan and report paths |
+| 16 | Patch targets and fields from the RHOAI 3.5 docs and `oc explain` on 3.5.2; the four queries are metrics that carried data on the lab's user-workload monitoring (2026-11-27). Not applied: copy the datasource from `dashboard-3-maas-usage-admin` first (the file says how) |
+| 17 | The ConfigMap entry format, the MCP tab flow, gateway acceptance of `ogx-token.sh` tokens, and the per-user RBAC result were checked on our lab (RHOAI 3.5.2, 2026-11-27), from the RHOAI 3.5 playground docs. The OGXServer TLS patch is not verified: the dashboard creates and may rewrite that object (check: in the file) |
 
 ## Sources
 
@@ -101,5 +101,5 @@ files: each file gives the `oc create secret` command.
 - OCP 4.22 *Authentication and authorization*, ch. 8 (direct external OIDC)
 - RHOAI 3.5 *Administer OpenShift AI*, ch. 10; *Govern LLM access with Models-as-a-Service*; *Build
   AI/Agentic Applications with OGX*
-- Red Hat build of OpenTelemetry, Tempo, Cluster Observability Operator, OSSM 3 docs (see 07–09, 13, 14)
+- Red Hat build of OpenTelemetry, Tempo, Cluster Observability Operator, OSSM 3 docs (see 07–09, 13, 16)
 - Red Hat Jira, swept 2026-11-24 for known issues (cited in each file)

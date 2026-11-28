@@ -38,7 +38,7 @@
 #
 # Guardrail step (--mcp-args-guarded JSON, or DEMO_MCP_ARGS_GUARDED in demo.env): after the normal
 # MCP step, the LAST agent makes one more tools/call for the SAME tool with THESE arguments ("$NS"
-# becomes the agent's namespace, as in --mcp-args). With 17-nemo-mcp-guardrails.yaml applied and
+# becomes the agent's namespace, as in --mcp-args). With 15-nemo-mcp-guardrails.yaml applied and
 # the guardrails annotation set on the MCPGatewayExtension, the gateway sends the arguments to NeMo
 # first: arguments containing an email address are refused with HTTP 403 "blocked by guardrails".
 # The span records mcp.tool.is_error and the HTTP status, and the script prints "BLOCKED BY
@@ -343,7 +343,7 @@ for w in plan["steps"]:
         mcp_report = (tool, is_err, round(ms), summary)
         continue
     if w.get("mcp_guarded") and os.environ.get("MCP_ARGS_GUARDED"):
-        # The guardrail test (17): the same tool again with arguments that should trip a rail.
+        # The guardrail test (15): the same tool again with arguments that should trip a rail.
         # Same span shape as the mcp step; the bash side labels the outcome from the report.
         from opentelemetry.trace import Status, StatusCode
         tool = os.environ["MCP_TOOL"]
@@ -540,7 +540,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Pod",
         echo "    BLOCKED BY GUARDRAILS (expected): tools/call $MCP_TOOL with the guarded arguments: HTTP $gcode in ${gms} ms: ${gsum:0:110}"
       else
         echo "    WARNING: the guarded call was NOT blocked (HTTP $gcode, mcp.tool.is_error=$gerr, ${gms} ms): ${gsum:0:110}" >&2
-        echo "    Is 17-nemo-mcp-guardrails.yaml applied and mcp.kuadrant.io/guardrails-ref set on the extension?" >&2
+        echo "    Is 15-nemo-mcp-guardrails.yaml applied and mcp.kuadrant.io/guardrails-ref set on the extension?" >&2
       fi
     fi
     ogx=$(sed -n 's/^DEMO_OGX=//p' <<<"$out")

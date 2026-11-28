@@ -1,4 +1,4 @@
-# Step 15 (OPTIONAL, demo segment): one question, two users, in the gen AI playground.
+# Step 17 (OPTIONAL, demo segment): one question, two users, in the gen AI playground.
 # What it gives:
 #   - The MCP gateway (8) registered as a playground MCP server. The playground's model answers a
 #     question by calling the MCP server for Red Hat OpenShift through the gateway, and that server
@@ -11,7 +11,7 @@
 #     authority" and the dashboard reports "authorization failed" (seen on RHOAI 3.5.2, 2026-11-27).
 #     The in-cluster address needs no certificate; the gateway still requires a token there.
 #   - The RoleBinding below is the only object this file applies:
-#       ./render.sh 15-playground-mcp.yaml --check   then   ./render.sh 15-playground-mcp.yaml --apply
+#       ./render.sh 17-playground-mcp.yaml --check   then   ./render.sh 17-playground-mcp.yaml --apply
 #     The rest needs cluster data and stays as commands: copy them from the rendered output
 #     (render.sh fills ${APPS_DOMAIN}) and edit the <placeholders>.
 # Prerequisites:

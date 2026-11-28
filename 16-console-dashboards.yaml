@@ -1,4 +1,4 @@
-# Step 14 (OPTIONAL, demo day): usage and enforcement dashboards to show beside the traces.
+# Step 16 (OPTIONAL, demo day): usage and enforcement dashboards to show beside the traces.
 # What it gives:
 #   - RHOAI's MaaS observability dashboard (Technology Preview): in the RHOAI dashboard, Observe &
 #     monitor -> Dashboard -> Usage. RHOAI creates it (dashboard-3-maas-usage-admin in

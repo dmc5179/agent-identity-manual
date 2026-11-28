@@ -336,9 +336,9 @@ span attributes.
 
 ### Dashboards for the demo
 
-`14-console-dashboards.yaml` adds two dashboards for the numbers behind the traces. Run its five
+`16-console-dashboards.yaml` adds two dashboards for the numbers behind the traces. Run its five
 commented patches (DSCInitialization, OdhDashboardConfig, Kuadrant, MaaSTenantConfig, the Perses
-UIPlugin), then `./render.sh 14-console-dashboards.yaml --apply`. The DSCInitialization patch adds a
+UIPlugin), then `./render.sh 16-console-dashboards.yaml --apply`. The DSCInitialization patch adds a
 Prometheus to `redhat-ods-monitoring`: check worker CPU first; `replicas: 1` halves the cost.
 
 | Where the audience looks | What it shows |
@@ -346,7 +346,7 @@ Prometheus to `redhat-ods-monitoring`: check worker CPU first; `replicas: 1` hal
 | RHOAI dashboard, Observe & monitor → Dashboard → Usage | MaaS usage (Technology Preview): active users, success rate, token consumption, total and rate-limited requests per model |
 | Console, Observe → Dashboards (Perses) | The `agent-gateways` dashboard: MCP gateway and MaaS requests by response code, Authorino results (OK, UNAUTHENTICATED, PERMISSION_DENIED), Kuadrant allowed and denied |
 
-With none of it, paste the file's four queries into **Observe → Metrics**. File 14 lists them.
+With none of it, paste the file's four queries into **Observe → Metrics**. File 16 lists them.
 
 ### Agent pod identity (console)
 
@@ -371,9 +371,9 @@ claims; no token is printed).
 
 Red Hat Connectivity Link 1.5 ships the MCP gateway: agents call MCP servers through the cluster
 ingress instead of reaching each server directly, and every call is authenticated with the identity
-work in this guide. `16-mcp-gateway.yaml` holds tested manifests for all of this as plain objects
+work in this guide. `14-mcp-gateway.yaml` holds tested manifests for all of this as plain objects
 (no AutoShift), taken from a working lab cluster on OpenShift 4.22, Connectivity Link 1.5 and RHOAI
-3.5.2. Apply it with `./render.sh 16-mcp-gateway.yaml --check`, then `./render.sh 16-mcp-gateway.yaml
+3.5.2. Apply it with `./render.sh 14-mcp-gateway.yaml --check`, then `./render.sh 14-mcp-gateway.yaml
 --apply`; the MCP server for Red Hat OpenShift installs by Helm first, with the command in that
 file's header.
 
@@ -407,7 +407,7 @@ MCPServerRegistration to the versions it really serves.
 
 ### Guardrails on tool calls (NeMo)
 
-`17-nemo-mcp-guardrails.yaml` puts NeMo Guardrails in front of this gateway: it checks every tool
+`15-nemo-mcp-guardrails.yaml` puts NeMo Guardrails in front of this gateway: it checks every tool
 call's arguments before the gateway proxies the call, and every tool result before it returns to
 the client. Arguments that trip a rail come back as HTTP 403 "blocked by guardrails"; a result
 that trips a rail returns as an MCP error result. The file uses the built-in rails only (email
@@ -422,7 +422,7 @@ MCPGatewayExtension first (the file header gives the order).
 
 ### Playground: one question, two users
 
-Apply `15-playground-mcp.yaml` and the commands in its header: the gateway as a ConfigMap key (its
+Apply `17-playground-mcp.yaml` and the commands in its header: the gateway as a ConfigMap key (its
 in-cluster HTTP address, because the dashboard does not trust the route's ingress certificate) and
 edit on the playground's project for the second user. Then, in the RHOAI dashboard, open the playground and ask one question as two users:
 
