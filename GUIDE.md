@@ -14,7 +14,8 @@ cp vars.env.example vars.env && vi vars.env       # cluster, Keycloak, trust dom
 chmod +x render.sh verify.sh trace-query.sh
 ```
 
-- **Keycloak**: import `manifests/00-keycloak-realm-clients.json` (after filling the `${...}` values), then note
+- **Keycloak**: fill the realm template with `./render.sh manifests/00-keycloak-realm-clients.json > realm-filled.json`
+  and import `realm-filled.json` (Realm settings → Action → Partial import), then note
   the console and gateway client secrets.
 - **Decide the trust domain now.** It cannot be changed later without rebuilding SPIRE.
 - **FIPS cluster?** ZTWIM is not supported there (KB 7144070). Stop and raise it.

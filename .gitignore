@@ -9,3 +9,5 @@ research/
 # Vale: the downloaded style is fetched by vale sync; only the vocabulary is kept
 .vale/styles/*
 !.vale/styles/config/
+# The filled realm import (may hold real hostnames)
+realm-filled.json

@@ -52,7 +52,7 @@ Work through this list top to bottom; the file numbers match the apply order. Fi
 ### Steps 0–20: apply in this order (step N applies file NN)
 
 0. **Keycloak realm** ([GUIDE 0](GUIDE.md#0-prepare-15-min)) — creates the realm's clients, groups and token mappers that every later step trusts.
-   Import: in Keycloak, Realm settings → Action → Partial import with `manifests/00-keycloak-realm-clients.json`, after filling the `${...}` values (or `kcadm`).
+   Fill the `${...}` values: `./render.sh manifests/00-keycloak-realm-clients.json > realm-filled.json`. Import `realm-filled.json` in Keycloak: Realm settings → Action → Partial import (or `kcadm`).
    Check: `curl -skf "$KEYCLOAK_ISSUER/.well-known/openid-configuration"` answers for the realm, and the Clients tab lists the imported clients.
 1. **Workload identity** ([GUIDE 1](GUIDE.md#1-workload-identity-no-downtime-15-min)) — sets the SPIFFE trust domain and cluster name that every later identity object reads.
    Command: `./render.sh manifests/01-ztwim.yaml --check && ./render.sh manifests/01-ztwim.yaml --apply`
