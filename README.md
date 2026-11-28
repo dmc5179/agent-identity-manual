@@ -35,26 +35,28 @@ issues that affect it.
 
 ## Order
 
+The numbered files are in [`manifests/`](manifests/), in apply order; the scripts and docs stay at the top level. `./render.sh manifests/NN-name.yaml` (or just `NN-name.yaml`) renders one.
+
 | Step | File | Depends on | Disruptive? |
 |---|---|---|---|
-| 0 | `00-keycloak-realm-clients.json` (in Keycloak) | – | no |
-| 1 | `01-ztwim.yaml` | ZTWIM operator | no |
-| 2 | `02-spire.yaml` | 01 Ready (trust domain, cluster name) | no |
-| 3 | `03-agent-spiffe-ids.yaml` | 02 pods Running | no |
-| 4 | `04-openshift-external-oidc.yaml` | 0; CA ConfigMap and console Secret first | **YES**: OAuth server off, ~20 min API rollout |
-| 5 | `05-rhoai-gateway-oidc.yaml` | 4 rolled out; gateway Secret first | dashboard sessions reset |
-| 6 | `06-maas-access.yaml` | 4 | no |
-| 7 | `07-tempo.yaml` | Tempo operator | no |
-| 8 | `08-opentelemetry.yaml` | 7 | no |
-| 9 | `09-tracing-ui.yaml` | 7, COO | no |
-| 10 | `10-ogx.yaml` | 0, 8 | no |
-| 11 | `11-authpolicy-agent-or-user.yaml` (optional) | 2, RHCL, an HTTPRoute | no |
-| 12 | `12-example-agent.yaml` | 3, 8 | no |
-| 13 | `13-service-mesh.yaml` (optional) | see the file: read before applying | can break Gateway API |
-| 14 | `14-mcp-gateway.yaml` | Connectivity Link 1.5 (MCP gateway operator), a Kuadrant CR; the MCP server for Red Hat OpenShift installed by Helm; apply before 17 | no |
-| 15 | `15-nemo-mcp-guardrails.yaml` (optional) | 14; the TrustyAI component Managed in the DataScienceCluster | no |
-| 16 | `16-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
-| 17 | `17-playground-mcp.yaml` (optional) | 14 (MCP gateway); a tool-calling model and a playground in one project | no |
+| 0 | `manifests/00-keycloak-realm-clients.json` (in Keycloak) | – | no |
+| 1 | `manifests/01-ztwim.yaml` | ZTWIM operator | no |
+| 2 | `manifests/02-spire.yaml` | 01 Ready (trust domain, cluster name) | no |
+| 3 | `manifests/03-agent-spiffe-ids.yaml` | 02 pods Running | no |
+| 4 | `manifests/04-openshift-external-oidc.yaml` | 0; CA ConfigMap and console Secret first | **YES**: OAuth server off, ~20 min API rollout |
+| 5 | `manifests/05-rhoai-gateway-oidc.yaml` | 4 rolled out; gateway Secret first | dashboard sessions reset |
+| 6 | `manifests/06-maas-access.yaml` | 4 | no |
+| 7 | `manifests/07-tempo.yaml` | Tempo operator | no |
+| 8 | `manifests/08-opentelemetry.yaml` | 7 | no |
+| 9 | `manifests/09-tracing-ui.yaml` | 7, COO | no |
+| 10 | `manifests/10-ogx.yaml` | 0, 8 | no |
+| 11 | `manifests/11-authpolicy-agent-or-user.yaml` (optional) | 2, RHCL, an HTTPRoute | no |
+| 12 | `manifests/12-example-agent.yaml` | 3, 8 | no |
+| 13 | `manifests/13-service-mesh.yaml` (optional) | see the file: read before applying | can break Gateway API |
+| 14 | `manifests/14-mcp-gateway.yaml` | Connectivity Link 1.5 (MCP gateway operator), a Kuadrant CR; the MCP server for Red Hat OpenShift installed by Helm; apply before 17 | no |
+| 15 | `manifests/15-nemo-mcp-guardrails.yaml` (optional) | 14; the TrustyAI component Managed in the DataScienceCluster | no |
+| 16 | `manifests/16-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
+| 17 | `manifests/17-playground-mcp.yaml` (optional) | 14 (MCP gateway); a tool-calling model and a playground in one project | no |
 
 ZTWIM first, then SPIRE, as SPIRE reads the trust domain and cluster name from the ZTWIM resource.
 If you plan to use SPIRE as the Service Mesh CA (13), set `CREATE_ONLY_MODE=true` on the ZTWIM
@@ -70,8 +72,8 @@ cp vars.env.example vars.env && vi vars.env
 set -a; . ./vars.env; set +a
 VARS="$(sed -n 's/^\([A-Z_]*\)=.*/${\1}/p' vars.env | tr '\n' ' ')"
 render() { envsubst "$VARS" < "$1"; }
-render 01-ztwim.yaml | oc apply --dry-run=server -f -   # check first
-render 01-ztwim.yaml | oc apply -f -
+render manifests/01-ztwim.yaml | oc apply --dry-run=server -f -   # check first
+render manifests/01-ztwim.yaml | oc apply -f -
 ```
 
 Files with `<placeholders>` (model names, route names) need editing by hand. Secrets are never in the

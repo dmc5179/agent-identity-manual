@@ -20,7 +20,7 @@
 #   - The NeMo Guardrails server must run in the SAME namespace as the MCP gateway (mcp-gateway):
 #     every object below is written there.
 # Apply in the order written (ConfigMap, NemoGuardrails, Secret, then the annotation):
-#   ./render.sh 15-nemo-mcp-guardrails.yaml --check   then   ./render.sh 15-nemo-mcp-guardrails.yaml --apply
+#   ./render.sh manifests/15-nemo-mcp-guardrails.yaml --check   then   ./render.sh manifests/15-nemo-mcp-guardrails.yaml --apply
 #   Wait for the NeMo server pod and Service to appear in mcp-gateway (oc get pods,svc -n
 #   mcp-gateway), and correct the Secret's url if the Service name or port differs. Then enable the
 #   checks with the annotation command at the end of this file, and check that the extension is

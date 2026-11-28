@@ -10,7 +10,7 @@
 # asked for with that scope. A plain openid token gets 401 from an OGX with auth on.
 # The script checks the audience of the returned token and fails with a clear message
 # when ogx-api is missing (the scope is not defined on the realm or not added to the
-# client; 00-keycloak-realm-clients.json defines it).
+# client; manifests/00-keycloak-realm-clients.json defines it).
 #
 # Configuration, the environment first, then vars.env here (plain NAME=value lines,
 # read with sed, never sourced, so no code in it runs):
@@ -130,7 +130,7 @@ print("yes" if "ogx-api" in aud else "no")')" || {
 if [ "$aud" != "yes" ]; then
     echo "Error: the token's aud does not include ogx-api, so OGX would refuse it: the" >&2
     echo "       ogx-api optional client scope is missing from the realm or not added" >&2
-    echo "       to ${client} (00-keycloak-realm-clients.json defines it), or the scope" >&2
+    echo "       to ${client} (manifests/00-keycloak-realm-clients.json defines it), or the scope" >&2
     echo "       was dropped from the request." >&2
     exit 1
 fi

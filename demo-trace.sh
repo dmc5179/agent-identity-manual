@@ -38,7 +38,7 @@
 #
 # Guardrail step (--mcp-args-guarded JSON, or DEMO_MCP_ARGS_GUARDED in demo.env): after the normal
 # MCP step, the LAST agent makes one more tools/call for the SAME tool with THESE arguments ("$NS"
-# becomes the agent's namespace, as in --mcp-args). With 15-nemo-mcp-guardrails.yaml applied and
+# becomes the agent's namespace, as in --mcp-args). With manifests/15-nemo-mcp-guardrails.yaml applied and
 # the guardrails annotation set on the MCPGatewayExtension, the gateway sends the arguments to NeMo
 # first: arguments containing an email address are refused with HTTP 403 "blocked by guardrails".
 # The span records mcp.tool.is_error and the HTTP status, and the script prints "BLOCKED BY
@@ -54,7 +54,7 @@
 # --ogx-prompt (DEMO_OGX_PROMPT) sets the question; "$NS" in it becomes the agent's namespace.
 # --ogx-mcp adds a tools entry of type mcp pointing at the MCP gateway's public route, with the
 # agent's own token, so OGX produces list_mcp_tools and invoke_mcp_tool spans and the MCP server
-# applies the agent's RBAC. With --ogx-mcp, ask something the tool can answer. The token: OGX with AUTH_ISSUER set (10-ogx.yaml) accepts only Keycloak tokens
+# applies the agent's RBAC. With --ogx-mcp, ask something the tool can answer. The token: OGX with AUTH_ISSUER set (manifests/10-ogx.yaml) accepts only Keycloak tokens
 # carrying the ogx-api audience — the agent's service account token will NOT work. Supply one
 # through DEMO_OGX_TOKEN (scripts/lib-oc-token.sh in rhoai-mass-aws, or your Keycloak token
 # endpoint); it is passed to the pod and never printed. Without DEMO_OGX_TOKEN the request goes
@@ -540,7 +540,7 @@ print(json.dumps({"apiVersion": "v1", "kind": "Pod",
         echo "    BLOCKED BY GUARDRAILS (expected): tools/call $MCP_TOOL with the guarded arguments: HTTP $gcode in ${gms} ms: ${gsum:0:110}"
       else
         echo "    WARNING: the guarded call was NOT blocked (HTTP $gcode, mcp.tool.is_error=$gerr, ${gms} ms): ${gsum:0:110}" >&2
-        echo "    Is 15-nemo-mcp-guardrails.yaml applied and mcp.kuadrant.io/guardrails-ref set on the extension?" >&2
+        echo "    Is manifests/15-nemo-mcp-guardrails.yaml applied and mcp.kuadrant.io/guardrails-ref set on the extension?" >&2
       fi
     fi
     ogx=$(sed -n 's/^DEMO_OGX=//p' <<<"$out")

@@ -5,15 +5,15 @@
 #   ./show-identity.sh                 # first DEMO_AGENTS entry in demo.env, else agent-id-test/agent-a
 #
 # Runs `oc exec deploy/<name> -n <ns> -- python3 -I -c '<inline script>'` in the agent pod
-# (image registry.access.redhat.com/ubi9/python-312, see 12-example-agent.yaml) and prints:
+# (image registry.access.redhat.com/ubi9/python-312, see manifests/12-example-agent.yaml) and prints:
 #   - the projected service account token's claims: iss, sub, aud, iat, exp, and the remaining
 #     lifetime in minutes. The token and its signature are never printed, only those claims.
 #   - whether the SPIFFE workload API socket exists at the path in $SPIFFE_ENDPOINT_SOCKET
-#     (unix:///spiffe-workload-api/spire-agent.sock in 12-example-agent.yaml).
+#     (unix:///spiffe-workload-api/spire-agent.sock in manifests/12-example-agent.yaml).
 #   - the agent's SPIFFE ID: fetched with the py-spiffe module when the pod has it (pip installs
 #     it to /tmp/pylib when it does not); when that is impossible (for example a disconnected
 #     cluster), the expected ID spiffe://<trust-domain>/ns/<ns>/sa/<sa>, built from the namespace
-#     and service account as 03-agent-spiffe-ids.yaml defines, clearly labeled
+#     and service account as manifests/03-agent-spiffe-ids.yaml defines, clearly labeled
 #     "expected, not fetched".
 #   - the pod name and its serviceAccountName (oc get pod ... -o jsonpath).
 #
@@ -194,7 +194,7 @@ else:
     print("SPIFFE ID: spiffe://{}/ns/{}/sa/{} (expected, not fetched)".format(trust_domain, ns, sa))
     print("  {}".format(how))
     print("  the ID is derived from the namespace and service account,")
-    print("  as the ClusterSPIFFEID in 03-agent-spiffe-ids.yaml defines it")
+    print("  as the ClusterSPIFFEID in manifests/03-agent-spiffe-ids.yaml defines it")
 PYEOF
 )"
 

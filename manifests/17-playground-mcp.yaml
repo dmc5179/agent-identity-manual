@@ -11,7 +11,7 @@
 #     authority" and the dashboard reports "authorization failed" (seen on RHOAI 3.5.2, 2026-11-27).
 #     The in-cluster address needs no certificate; the gateway still requires a token there.
 #   - The RoleBinding below is the only object this file applies:
-#       ./render.sh 17-playground-mcp.yaml --check   then   ./render.sh 17-playground-mcp.yaml --apply
+#       ./render.sh manifests/17-playground-mcp.yaml --check   then   ./render.sh manifests/17-playground-mcp.yaml --apply
 #     The rest needs cluster data and stays as commands: copy them from the rendered output
 #     (render.sh fills ${APPS_DOMAIN}) and edit the <placeholders>.
 # Prerequisites:

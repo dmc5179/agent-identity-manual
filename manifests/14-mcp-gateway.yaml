@@ -13,7 +13,7 @@
 #     Helm chart; create mcp-gateway (and rhokp, only for the optional docs server) first.
 # Apply in the order written (gateway, grant, extension, the two NetworkPolicies, the EnvoyFilter,
 # the AuthPolicy, the Route, the gateway HTTPRoute, then each server's HTTPRoute and registration):
-#   ./render.sh 14-mcp-gateway.yaml --check   then   ./render.sh 14-mcp-gateway.yaml --apply
+#   ./render.sh manifests/14-mcp-gateway.yaml --check   then   ./render.sh manifests/14-mcp-gateway.yaml --apply
 # Traps (GUIDE 8):
 #   - Both listeners use port 8080: the controller matches registrations to the MCPGatewayExtension
 #     by listener port, and a mismatch leaves every registration NotReady.

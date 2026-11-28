@@ -42,14 +42,14 @@ alert recipes and console queries are in [TRACE-FORMAT.md](TRACE-FORMAT.md); set
 | Keycloak spans | Keycloak | SERVER, CLIENT | only when Keycloak tracing is on (`--tracing-enabled=true`); Keycloak sends its own traces for its HTTP, database, LDAP and outgoing calls |
 
 With default telemetry OGX also emits 50-100 PostgreSQL spans per request (`BEGIN;`, `SELECT`,
-`INSERT`, `COMMIT;`, `ROLLBACK;`, `connect`). The shipped `10-ogx.yaml` disables them.
+`INSERT`, `COMMIT;`, `ROLLBACK;`, `connect`). The shipped `manifests/10-ogx.yaml` disables them.
 
 ## Span attributes
 
 Trust says who asserts the value: **agent** (written by the agent itself), **OGX** (recorded by OGX
 or its instrumentation), **Keycloak** (recorded by Keycloak). OGX's HTTP spans carry the older
 semantic-convention names; `OTEL_SEMCONV_STABILITY_OPT_IN=http/dup` (set in the shipped
-`10-ogx.yaml`) adds the current names next to them, so one span can carry both. Rows show both,
+`manifests/10-ogx.yaml`) adds the current names next to them, so one span can carry both. Rows show both,
 older first.
 
 | Field | Example | Meaning | Emitted by | Trust |

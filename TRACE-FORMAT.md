@@ -71,7 +71,7 @@ image source. Notes:
   `http.status_code`, `http.target`). `OTEL_SEMCONV_STABILITY_OPT_IN=http/dup` adds the current
   names next to them, so one span can carry both. Match either in dashboards and alerts;
   `ogx-trace-check.sh` accepts both and reports which it saw. Both settings ship in this repo's
-  `10-ogx.yaml`.
+  `manifests/10-ogx.yaml`.
 - The OGX spans use plain keys (`tool_name`, `server_label`), not the GenAI semantic convention
   for tool spans. The OGX source marks this as a to-do, so expect these names to change in a later
   release. Build matching on them so it can change in one place.
@@ -88,7 +88,7 @@ image source. Notes:
   database spans per request (`BEGIN;`, `SELECT`, `INSERT`, `COMMIT;`, `ROLLBACK;`, `connect`),
   which bury the agent and model spans in a dashboard. Setting
   `OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=asyncpg,sqlalchemy` removes them. Both settings ship in
-  `10-ogx.yaml`.
+  `manifests/10-ogx.yaml`.
 
 ## Spans the agents produce (this repo's pattern)
 
@@ -109,7 +109,7 @@ whole user → agent → agent → OGX → model chain. W3C `baggage` carries `u
 ## Metrics, if you take them too
 
 OGX also sends OTLP metrics when the same variables are set (our collector currently takes traces
-only, so OGX's metrics are set to `none` in `10-ogx.yaml`). OGX's own metric names, from
+only, so OGX's metrics are set to `none` in `manifests/10-ogx.yaml`). OGX's own metric names, from
 `ogx/telemetry/constants.py`:
 
 `ogx.requests_total`, `ogx.request_duration_seconds`, `ogx.concurrent_requests`,

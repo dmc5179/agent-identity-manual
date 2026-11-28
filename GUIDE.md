@@ -14,7 +14,7 @@ cp vars.env.example vars.env && vi vars.env       # cluster, Keycloak, trust dom
 chmod +x render.sh verify.sh trace-query.sh
 ```
 
-- **Keycloak**: import `00-keycloak-realm-clients.json` (after filling the `${...}` values), then note
+- **Keycloak**: import `manifests/00-keycloak-realm-clients.json` (after filling the `${...}` values), then note
   the console and gateway client secrets.
 - **Decide the trust domain now.** It cannot be changed later without rebuilding SPIRE.
 - **FIPS cluster?** ZTWIM is not supported there (KB 7144070). Stop and raise it.
@@ -23,15 +23,15 @@ chmod +x render.sh verify.sh trace-query.sh
 ## 1. Workload identity (no downtime, ~15 min)
 
 ```bash
-./render.sh 01-ztwim.yaml --apply                  # trust domain + cluster name: FIRST
+./render.sh manifests/01-ztwim.yaml --apply                  # trust domain + cluster name: FIRST
 oc get zerotrustworkloadidentitymanagers.operator.openshift.io cluster   # wait for it
-./render.sh 02-spire.yaml --apply                  # server, agents, CSI driver, OIDC discovery
+./render.sh manifests/02-spire.yaml --apply                  # server, agents, CSI driver, OIDC discovery
 oc get pods -n zero-trust-workload-identity-manager -w   # spire-server-0, one spire-agent per node
-./render.sh 03-agent-spiffe-ids.yaml --apply       # IDs for pods labelled agent-identity=true
+./render.sh manifests/03-agent-spiffe-ids.yaml --apply       # IDs for pods labelled agent-identity=true
 ```
 
 Using SPIRE as the Service Mesh CA later? Set `CREATE_ONLY_MODE=true` on the ZTWIM Subscription
-**before** `02` (see `13-service-mesh.yaml`).
+**before** `02` (see `manifests/13-service-mesh.yaml`).
 
 ## 2. Tracing (no downtime, ~20 min)
 
@@ -40,9 +40,9 @@ oc create namespace "$TRACING_NAMESPACE"
 oc create secret generic tempo-s3 -n "$TRACING_NAMESPACE" --from-literal=bucket=<bucket> \
   --from-literal=endpoint=https://s3.<region>.amazonaws.com \
   --from-literal=access_key_id=<id> --from-literal=access_key_secret=<secret>
-./render.sh 07-tempo.yaml --apply                  # wait: TempoStack agents Ready
-./render.sh 08-opentelemetry.yaml --apply          # collector + Python Instrumentation
-oc apply -f 09-tracing-ui.yaml                     # console: Observe -> Traces
+./render.sh manifests/07-tempo.yaml --apply                  # wait: TempoStack agents Ready
+./render.sh manifests/08-opentelemetry.yaml --apply          # collector + Python Instrumentation
+oc apply -f manifests/09-tracing-ui.yaml                     # console: Observe -> Traces
 oc adm groups new tracing-viewers <you>            # or a Keycloak group of that name after step 3
 ```
 
@@ -54,7 +54,7 @@ working), and back up: `oc get authentications.config.openshift.io cluster -o ya
 ```bash
 oc create configmap keycloak-ca -n openshift-config --from-file=ca-bundle.crt=keycloak-ca.crt   # private CA only
 oc create secret generic keycloak-console-client -n openshift-config --from-literal=clientSecret=<console-secret>
-./render.sh 04-openshift-external-oidc.yaml --apply
+./render.sh manifests/04-openshift-external-oidc.yaml --apply
 oc get co kube-apiserver -w                        # wait until Progressing=False (~20 min)
 oc login https://api.<cluster>:6443 --exec-plugin=oc-oidc --issuer-url="$KEYCLOAK_ISSUER" \
   --client-id="$KEYCLOAK_CLI_CLIENT" --callback-port=8080 \
@@ -62,7 +62,7 @@ oc login https://api.<cluster>:6443 --exec-plugin=oc-oidc --issuer-url="$KEYCLOA
 oc whoami                                          # your Keycloak user
 
 oc create secret generic keycloak-gateway-client -n openshift-ingress --from-literal=clientSecret=<gateway-secret>
-./render.sh 05-rhoai-gateway-oidc.yaml --apply     # RHOAI dashboard via Keycloak
+./render.sh manifests/05-rhoai-gateway-oidc.yaml --apply     # RHOAI dashboard via Keycloak
 ```
 
 **Copy login command.** With the `cli` client set (04), the console's Copy login command shows an
@@ -131,11 +131,11 @@ is not refreshed: `oc` in the workspace works for about 5 minutes after it start
 ## 4. Models, OGX, agents (~30 min)
 
 ```bash
-vi 06-maas-access.yaml                             # set <model> and <model-ns>
-./render.sh 06-maas-access.yaml --apply            # Keycloak group + agent service accounts
+vi manifests/06-maas-access.yaml                             # set <model> and <model-ns>
+./render.sh manifests/06-maas-access.yaml --apply            # Keycloak group + agent service accounts
 ```
 
-OGX needs its database, its MaaS key and the ingress CA before 10-ogx.yaml applies. This is the
+OGX needs its database, its MaaS key and the ingress CA before manifests/10-ogx.yaml applies. This is the
 order the live run of 2026-11-27 used; the pod went Ready about 1 minute after apply once the
 database worked:
 
@@ -147,21 +147,21 @@ scripts/ogx-database.sh secret < secrets/ogx-db.env   # applies Secret ogx-postg
 # into Secret ogx-maas-key, key apikey: MaaS keys expire, at most 90 days on 3.5.2.
 oc get configmap default-ingress-cert -n openshift-config-managed \
   -o jsonpath='{.data.ca-bundle\.crt}' > ingress-ca.pem   # the cluster ingress CA covers the MaaS
-                                                  # and Keycloak routes (10-ogx.yaml trusts it)
+                                                  # and Keycloak routes (manifests/10-ogx.yaml trusts it)
 oc create configmap ingress-ca -n "$OGX_NAMESPACE" --from-file=ca.crt=ingress-ca.pem
 oc label configmap ingress-ca -n "$OGX_NAMESPACE" ogx.io/watch=true   # without the label the
                                                 # operator never reads the ConfigMap
 vi vars.env                                        # OGX_DB_HOST: the endpoint in secrets/ogx-db.env
-./render.sh 10-ogx.yaml --check
-./render.sh 10-ogx.yaml --apply                    # wait for the OGXServer to go Ready (~1 min)
-./render.sh 12-example-agent.yaml --apply          # replace the image with your agent
+./render.sh manifests/10-ogx.yaml --check
+./render.sh manifests/10-ogx.yaml --apply                    # wait for the OGXServer to go Ready (~1 min)
+./render.sh manifests/12-example-agent.yaml --apply          # replace the image with your agent
 ```
 
-When auth is on, OGX (10-ogx.yaml) accepts only Keycloak tokens whose `aud` claim includes the
+When auth is on, OGX (manifests/10-ogx.yaml) accepts only Keycloak tokens whose `aud` claim includes the
 `ogx-api` audience; how to mint one for the demo is in section 7.
 
-Optional: `11-authpolicy-agent-or-user.yaml` (gateway accepts a Keycloak user OR a SPIRE agent) and
-`13-service-mesh.yaml` (read it fully first: it can break OpenShift's Gateway API).
+Optional: `manifests/11-authpolicy-agent-or-user.yaml` (gateway accepts a Keycloak user OR a SPIRE agent) and
+`manifests/13-service-mesh.yaml` (read it fully first: it can break OpenShift's Gateway API).
 
 ## 5. In your agent code
 
@@ -278,9 +278,9 @@ DEMO_OGX_TOKEN="$(./ogx-token.sh alice)" ./demo-trace.sh --user alice \
   --ogx-mcp agents/planner=Planner agents/researcher=Researcher
 ```
 
-The token must be one OGX accepts: with `AUTH_ISSUER` and `AUTH_AUDIENCE` set (10-ogx.yaml), OGX
+The token must be one OGX accepts: with `AUTH_ISSUER` and `AUTH_AUDIENCE` set (manifests/10-ogx.yaml), OGX
 accepts only Keycloak tokens whose `aud` claim includes the `ogx-api` audience — the agent's
-service account token will not work. The realm template (00-keycloak-realm-clients.json) provides
+service account token will not work. The realm template (manifests/00-keycloak-realm-clients.json) provides
 that audience through an optional client scope named `ogx-api`: the scope adds `ogx-api` to `aud`
 when, and only when, the client asks for scope `openid ogx-api`, so ordinary sign-in tokens stay
 unchanged. `ogx-token.sh` in this repository mints it: `export DEMO_OGX_TOKEN="$(./ogx-token.sh <keycloak-user>)"`
@@ -336,9 +336,9 @@ span attributes.
 
 ### Dashboards for the demo
 
-`16-console-dashboards.yaml` adds two dashboards for the numbers behind the traces. Run its five
+`manifests/16-console-dashboards.yaml` adds two dashboards for the numbers behind the traces. Run its five
 commented patches (DSCInitialization, OdhDashboardConfig, Kuadrant, MaaSTenantConfig, the Perses
-UIPlugin), then `./render.sh 16-console-dashboards.yaml --apply`. The DSCInitialization patch adds a
+UIPlugin), then `./render.sh manifests/16-console-dashboards.yaml --apply`. The DSCInitialization patch adds a
 Prometheus to `redhat-ods-monitoring`: check worker CPU first; `replicas: 1` halves the cost.
 
 | Where the audience looks | What it shows |
@@ -371,9 +371,9 @@ claims; no token is printed).
 
 Red Hat Connectivity Link 1.5 ships the MCP gateway: agents call MCP servers through the cluster
 ingress instead of reaching each server directly, and every call is authenticated with the identity
-work in this guide. `14-mcp-gateway.yaml` holds tested manifests for all of this as plain objects
+work in this guide. `manifests/14-mcp-gateway.yaml` holds tested manifests for all of this as plain objects
 (no AutoShift), taken from a working lab cluster on OpenShift 4.22, Connectivity Link 1.5 and RHOAI
-3.5.2. Apply it with `./render.sh 14-mcp-gateway.yaml --check`, then `./render.sh 14-mcp-gateway.yaml
+3.5.2. Apply it with `./render.sh manifests/14-mcp-gateway.yaml --check`, then `./render.sh manifests/14-mcp-gateway.yaml
 --apply`; the MCP server for Red Hat OpenShift installs by Helm first, with the command in that
 file's header.
 
@@ -407,7 +407,7 @@ MCPServerRegistration to the versions it really serves.
 
 ### Guardrails on tool calls (NeMo)
 
-`15-nemo-mcp-guardrails.yaml` puts NeMo Guardrails in front of this gateway: it checks every tool
+`manifests/15-nemo-mcp-guardrails.yaml` puts NeMo Guardrails in front of this gateway: it checks every tool
 call's arguments before the gateway proxies the call, and every tool result before it returns to
 the client. Arguments that trip a rail come back as HTTP 403 "blocked by guardrails"; a result
 that trips a rail returns as an MCP error result. The file uses the built-in rails only (email
@@ -425,7 +425,7 @@ MCPGatewayExtension first (the file header gives the order).
 
 ### Playground: one question, two users
 
-Apply `17-playground-mcp.yaml` and the commands in its header: the gateway as a ConfigMap key (its
+Apply `manifests/17-playground-mcp.yaml` and the commands in its header: the gateway as a ConfigMap key (its
 in-cluster HTTP address, because the dashboard does not trust the route's ingress certificate) and
 edit on the playground's project for the second user. Then, in the RHOAI dashboard, open the playground and ask one question as two users:
 
