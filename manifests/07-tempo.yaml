@@ -40,8 +40,8 @@ spec:
   tenants:
     mode: openshift                 # must be openshift
     authentication:
-    - tenantName: agents            # sent as X-Scope-OrgID
-      tenantId: 7c1f0a52-0d2e-4c43-9b7e-2f6a1d9e4a10   # any UUID, never change it later
+      - tenantName: agents            # sent as X-Scope-OrgID
+        tenantId: 7c1f0a52-0d2e-4c43-9b7e-2f6a1d9e4a10   # any UUID, never change it later
   template:
     gateway:
       enabled: true
@@ -55,10 +55,10 @@ kind: ClusterRole
 metadata:
   name: tempo-agents-traces-reader
 rules:
-- apiGroups: [tempo.grafana.com]
-  resources: [agents]               # the tenant name
-  resourceNames: [traces]
-  verbs: [get]
+  - apiGroups: [tempo.grafana.com]
+    resources: [agents]               # the tenant name
+    resourceNames: [traces]
+    verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
@@ -69,6 +69,6 @@ roleRef:
   kind: ClusterRole
   name: tempo-agents-traces-reader
 subjects:
-- kind: Group
-  apiGroup: rbac.authorization.k8s.io
-  name: tracing-viewers             # a Keycloak group (groups claim); docs example uses system:authenticated
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: tracing-viewers             # a Keycloak group (groups claim); docs example uses system:authenticated

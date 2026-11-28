@@ -8,6 +8,7 @@
 #   - Operator must be installed in zero-trust-workload-identity-manager, never openshift-* (OCPBUGS-129473).
 #   - Node names must resolve from pod DNS, or agent attestation fails (OCPBUGS-114875).
 #   - Tested shape: ZTWIM 1.1.3 on OCP 4.22.18 (our lab, 2026-11-10 to 11-24).
+---
 apiVersion: operator.openshift.io/v1alpha1
 kind: ZeroTrustWorkloadIdentityManager
 metadata:

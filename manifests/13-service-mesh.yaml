@@ -49,14 +49,15 @@ spec:
     meshConfig:
       trustDomain: ${TRUST_DOMAIN}
       discoverySelectors:
-      - matchLabels:
-          istio-discovery: agents-mesh
+        - matchLabels:
+            istio-discovery: agents-mesh
       enableTracing: true
       extensionProviders:           # mesh spans to the collector from 08
-      - name: otel
-        opentelemetry:
-          port: 4317
-          service: otel-collector.${TRACING_NAMESPACE}.svc.cluster.local
+        - name: otel
+          opentelemetry:
+            port: 4317
+            service: otel-collector.${TRACING_NAMESPACE}.svc.cluster.local
+    # yamllint disable rule:comments-indentation
     # --- SPIRE as CA (uncomment with the CREATE_ONLY_MODE step above) ---
     # pilot:
     #   jwksResolverExtraRootCA: |
@@ -67,6 +68,7 @@ spec:
     # sidecarInjectorWebhook.templates.spire / spireGateway: CSI csi.spiffe.io at
     #   /run/secrets/workload-spiffe-uds (full block: OSSM 3.5 Installing 7.3.2)
     # pods then opt in with annotation inject.istio.io/templates: "sidecar,spire"
+# yamllint enable rule:comments-indentation
 ---
 apiVersion: telemetry.istio.io/v1
 kind: Telemetry
@@ -75,9 +77,9 @@ metadata:
   namespace: istio-agents
 spec:
   tracing:
-  - providers:
-    - name: otel
-    randomSamplingPercentage: 100
+    - providers:
+        - name: otel
+      randomSamplingPercentage: 100
 # Put the agent namespace in the mesh, then restart its pods:
 #   oc label namespace ${AGENT_NAMESPACE} istio-discovery=agents-mesh istio.io/rev=agents-mesh
 # With the mesh, the OTel Instrumentation (08) needs the b3multi propagator.

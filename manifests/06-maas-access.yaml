@@ -21,12 +21,12 @@ metadata:
   namespace: models-as-a-service
 spec:
   modelRefs:
-  - name: <model>
-    namespace: <model-ns>
+    - name: <model>
+      namespace: <model-ns>
   subjects:
     groups:
-    - name: maas-users                                    # Keycloak group (groups claim, no path)
-    - name: system:serviceaccounts:${AGENT_NAMESPACE}     # every service account in the agent namespace
+      - name: maas-users                                    # Keycloak group (groups claim, no path)
+      - name: system:serviceaccounts:${AGENT_NAMESPACE}     # every service account in the agent namespace
 ---
 apiVersion: maas.opendatahub.io/v1alpha1
 kind: MaaSSubscription
@@ -35,13 +35,13 @@ metadata:
   namespace: models-as-a-service
 spec:
   modelRefs:
-  - name: <model>
-    namespace: <model-ns>
-    tokenRateLimits:
-    - limit: 300000
-      window: 1m
+    - name: <model>
+      namespace: <model-ns>
+      tokenRateLimits:
+        - limit: 300000
+          window: 1m
   owner:
     groups:
-    - name: maas-users
-    - name: system:serviceaccounts:${AGENT_NAMESPACE}
+      - name: maas-users
+      - name: system:serviceaccounts:${AGENT_NAMESPACE}
   priority: 10

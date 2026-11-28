@@ -64,33 +64,33 @@ metadata:
 spec:
   gatewayClassName: openshift-default
   listeners:
-  - allowedRoutes:
-      namespaces:
-        from: Selector
-        selector:
-          matchExpressions:
-          - key: kubernetes.io/metadata.name
-            operator: In
-            values:
-            - mcp-gateway
-    name: mcp
-    port: 8080
-    protocol: HTTP
-  - allowedRoutes:
-      namespaces:
-        from: Selector
-        selector:
-          matchExpressions:
-          - key: kubernetes.io/metadata.name
-            operator: In
-            values:
-            - mcp-gateway
-            - rhokp
-            - openshift-mcp-server
-    hostname: '*.mcp.local'
-    name: mcp-internal
-    port: 8080
-    protocol: HTTP
+    - allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - mcp-gateway
+      name: mcp
+      port: 8080
+      protocol: HTTP
+    - allowedRoutes:
+        namespaces:
+          from: Selector
+          selector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - mcp-gateway
+                  - rhokp
+                  - openshift-mcp-server
+      hostname: '*.mcp.local'
+      name: mcp-internal
+      port: 8080
+      protocol: HTTP
 ---
 apiVersion: gateway.networking.k8s.io/v1beta1
 kind: ReferenceGrant
@@ -99,13 +99,13 @@ metadata:
   namespace: openshift-ingress
 spec:
   from:
-  - group: mcp.kuadrant.io
-    kind: MCPGatewayExtension
-    namespace: mcp-gateway
+    - group: mcp.kuadrant.io
+      kind: MCPGatewayExtension
+      namespace: mcp-gateway
   to:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: mcp-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
 ---
 apiVersion: mcp.kuadrant.io/v1
 kind: MCPGatewayExtension
@@ -136,15 +136,15 @@ metadata:
   namespace: openshift-ingress
 spec:
   egress:
-  - {}
+    - {}
   ingress:
-  - {}
+    - {}
   podSelector:
     matchLabels:
       gateway.networking.k8s.io/gateway-name: mcp-gateway
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -155,27 +155,27 @@ metadata:
   namespace: mcp-gateway
 spec:
   egress:
-  - {}
+    - {}
   ingress:
-  - from:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: openshift-ingress
-    ports:
-    - port: 8080
-      protocol: TCP
-    - port: 50051
-      protocol: TCP
-  - ports:
-    - port: 9090
-      protocol: TCP
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: openshift-ingress
+      ports:
+        - port: 8080
+          protocol: TCP
+        - port: 50051
+          protocol: TCP
+    - ports:
+        - port: 9090
+          protocol: TCP
   podSelector:
     matchLabels:
       app.kubernetes.io/managed-by: mcp-gateway-controller
       app.kubernetes.io/name: mcp-gateway
   policyTypes:
-  - Ingress
-  - Egress
+    - Ingress
+    - Egress
 ---
 apiVersion: networking.istio.io/v1alpha3
 kind: EnvoyFilter
@@ -184,40 +184,40 @@ metadata:
   namespace: openshift-ingress
 spec:
   configPatches:
-  - applyTo: CLUSTER
-    match:
-      cluster:
-        service: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
-    patch:
-      operation: ADD
-      value:
-        connect_timeout: 1s
-        http2_protocol_options: {}
-        lb_policy: ROUND_ROBIN
-        load_assignment:
-          cluster_name: kuadrant-auth-service
-          endpoints:
-          - lb_endpoints:
-            - endpoint:
-                address:
-                  socket_address:
-                    address: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
-                    port_value: 50051
-        name: kuadrant-auth-service
-        transport_socket:
-          name: envoy.transport_sockets.tls
-          typed_config:
-            '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
-            common_tls_context:
-              validation_context:
-                trusted_ca:
-                  filename: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
-        type: STRICT_DNS
+    - applyTo: CLUSTER
+      match:
+        cluster:
+          service: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+      patch:
+        operation: ADD
+        value:
+          connect_timeout: 1s
+          http2_protocol_options: {}
+          lb_policy: ROUND_ROBIN
+          load_assignment:
+            cluster_name: kuadrant-auth-service
+            endpoints:
+              - lb_endpoints:
+                  - endpoint:
+                      address:
+                        socket_address:
+                          address: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+                          port_value: 50051
+          name: kuadrant-auth-service
+          transport_socket:
+            name: envoy.transport_sockets.tls
+            typed_config:
+              '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+              common_tls_context:
+                validation_context:
+                  trusted_ca:
+                    filename: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+          type: STRICT_DNS
   priority: -1
   targetRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: mcp-gateway
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
 ---
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
@@ -230,7 +230,7 @@ spec:
       kubernetes:
         kubernetesTokenReview:
           audiences:
-          - https://kubernetes.default.svc
+            - https://kubernetes.default.svc
         metrics: false
         priority: 0
   targetRef:
@@ -239,7 +239,7 @@ spec:
     name: mcp-gateway
     sectionName: mcp
   when:
-  - predicate: '!request.path.startsWith("/.well-known/oauth-protected-resource")'
+    - predicate: '!request.path.startsWith("/.well-known/oauth-protected-resource")'
 ---
 apiVersion: route.openshift.io/v1
 kind: Route
@@ -268,53 +268,53 @@ metadata:
   namespace: mcp-gateway
 spec:
   hostnames:
-  - mcp.${APPS_DOMAIN}
+    - mcp.${APPS_DOMAIN}
   parentRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: mcp-gateway
-    namespace: openshift-ingress
-    sectionName: mcp
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: openshift-ingress
+      sectionName: mcp
   rules:
-  - backendRefs:
-    - group: ''
-      kind: Service
-      name: mcp-gateway
-      port: 8080
-      weight: 1
-    filters:
-    - requestHeaderModifier:
-        remove:
-        - mcp-init-host
-        - router-key
-      type: RequestHeaderModifier
-    matches:
-    - path:
-        type: PathPrefix
-        value: /mcp
-    name: mcp
-  - backendRefs:
-    - group: ''
-      kind: Service
-      name: mcp-gateway
-      port: 8080
-      weight: 1
-    matches:
-    - path:
-        type: PathPrefix
-        value: /.well-known/oauth-protected-resource
-    name: well-known
-  - backendRefs:
-    - group: ''
-      kind: Service
-      name: mcp-gateway
-      port: 8080
-      weight: 1
-    matches:
-    - path:
-        type: PathPrefix
-        value: /status
-    name: status
+    - backendRefs:
+        - group: ''
+          kind: Service
+          name: mcp-gateway
+          port: 8080
+          weight: 1
+      filters:
+        - requestHeaderModifier:
+            remove:
+              - mcp-init-host
+              - router-key
+          type: RequestHeaderModifier
+      matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      name: mcp
+    - backendRefs:
+        - group: ''
+          kind: Service
+          name: mcp-gateway
+          port: 8080
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /.well-known/oauth-protected-resource
+      name: well-known
+    - backendRefs:
+        - group: ''
+          kind: Service
+          name: mcp-gateway
+          port: 8080
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /status
+      name: status
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -323,24 +323,24 @@ metadata:
   namespace: openshift-mcp-server
 spec:
   hostnames:
-  - openshift-mcp-server-openshift-mcp.mcp.local
+    - openshift-mcp-server-openshift-mcp.mcp.local
   parentRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: mcp-gateway
-    namespace: openshift-ingress
-    sectionName: mcp-internal
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: openshift-ingress
+      sectionName: mcp-internal
   rules:
-  - backendRefs:
-    - group: ''
-      kind: Service
-      name: openshift-mcp-server-redhat-openshift-mcp-server
-      port: 8080
-      weight: 1
-    matches:
-    - path:
-        type: PathPrefix
-        value: /
+    - backendRefs:
+        - group: ''
+          kind: Service
+          name: openshift-mcp-server-redhat-openshift-mcp-server
+          port: 8080
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
 ---
 apiVersion: mcp.kuadrant.io/v1
 kind: MCPServerRegistration
@@ -349,7 +349,7 @@ metadata:
   namespace: openshift-mcp-server
 spec:
   category:
-  - platform
+    - platform
   hint: Read-only OpenShift cluster tools
   path: /mcp
   prefix: openshift_
@@ -370,24 +370,24 @@ metadata:
   namespace: rhokp
 spec:
   hostnames:
-  - rhokp-rhokp-docs.mcp.local
+    - rhokp-rhokp-docs.mcp.local
   parentRefs:
-  - group: gateway.networking.k8s.io
-    kind: Gateway
-    name: mcp-gateway
-    namespace: openshift-ingress
-    sectionName: mcp-internal
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+      namespace: openshift-ingress
+      sectionName: mcp-internal
   rules:
-  - backendRefs:
-    - group: ''
-      kind: Service
-      name: rhokp-mcp
-      port: 8000
-      weight: 1
-    matches:
-    - path:
-        type: PathPrefix
-        value: /
+    - backendRefs:
+        - group: ''
+          kind: Service
+          name: rhokp-mcp
+          port: 8000
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /
 ---
 # OPTIONAL: registers the docs server on its HTTPRoute above. supportedProtocolVersions is
 # required: the server answers the MCP handshake in only one protocol version, so the registration
@@ -399,14 +399,14 @@ metadata:
   namespace: rhokp
 spec:
   category:
-  - knowledge
+    - knowledge
   hint: Search Red Hat documentation, solutions, CVEs and errata (offline)
   path: /mcp
   prefix: rhokp_
   state: Enabled
   supportedProtocolVersions:
-  - '2025-11-25'
-  - '2026-07-28'
+    - '2025-11-25'
+    - '2026-07-28'
   targetRef:
     group: gateway.networking.k8s.io
     kind: HTTPRoute

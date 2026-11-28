@@ -43,24 +43,24 @@ spec:
     spec:
       serviceAccountName: agent-a
       containers:
-      - name: agent
-        image: registry.access.redhat.com/ubi9/python-312   # replace with your agent image
-        command: ["sleep", "infinity"]
-        env:
-        - name: SPIFFE_ENDPOINT_SOCKET
-          value: unix:///spiffe-workload-api/spire-agent.sock
-        - name: OTEL_SERVICE_NAME
-          value: agent-a
-        - name: OTEL_PROPAGATORS
-          value: tracecontext,baggage
-        volumeMounts:
-        - name: spiffe-workload-api
-          mountPath: /spiffe-workload-api
-          readOnly: true
+        - name: agent
+          image: registry.access.redhat.com/ubi9/python-312   # replace with your agent image
+          command: ["sleep", "infinity"]
+          env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: unix:///spiffe-workload-api/spire-agent.sock
+            - name: OTEL_SERVICE_NAME
+              value: agent-a
+            - name: OTEL_PROPAGATORS
+              value: tracecontext,baggage
+          volumeMounts:
+            - name: spiffe-workload-api
+              mountPath: /spiffe-workload-api
+              readOnly: true
       volumes:
-      - name: spiffe-workload-api
-        csi:
-          driver: csi.spiffe.io     # from 02 (SpiffeCSIDriver.pluginName)
-          readOnly: true
+        - name: spiffe-workload-api
+          csi:
+            driver: csi.spiffe.io     # from 02 (SpiffeCSIDriver.pluginName)
+            readOnly: true
 # Check the identity from inside the pod (spire-agent CLI is not in app images; use your SDK), or:
 #   oc get clusterspiffeids.spire.spiffe.io agents -o jsonpath='{.status.stats}'

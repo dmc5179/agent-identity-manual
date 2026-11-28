@@ -78,13 +78,13 @@ metadata:
 spec:
   # The config ID "pii" maps to the ConfigMap above; the Secret below lists it in configIDs.
   nemoConfigs:
-  - configMaps:
-    - pii
-    name: pii
-  # No spec.template.pod.mcpGateway: that field is the RHOAI docs' discovery path (it scans for
-  # the BBR ext_proc plugin in EnvoyFilters in the gateway namespace), which this file does not
-  # use. The RHCL gateway integration only needs the NeMo server running in this namespace, and
-  # reads its endpoint from the Secret below.
+    - configMaps:
+        - pii
+      name: pii
+# No spec.template.pod.mcpGateway: that field is the RHOAI docs' discovery path (it scans for
+# the BBR ext_proc plugin in EnvoyFilters in the gateway namespace), which this file does not
+# use. The RHCL gateway integration only needs the NeMo server running in this namespace, and
+# reads its endpoint from the Secret below.
 ---
 # The Secret the gateway controller reads (RHCL ch. 7): same namespace as the MCPGatewayExtension,
 # label mcp.kuadrant.io/secret "true", type guardrails/external/nemo. No bearer token or CA

@@ -10,6 +10,7 @@
 #   - Authorino must trust both issuers' TLS. Private CA -> bare 401 (CONNLINK-2027).
 #   - Any cache TTL must be below the 5m token lifetime.
 #   - If OGX trusts these headers, OGX must be reachable ONLY through this gateway (OGX docs 3.3.2).
+---
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
 metadata:
@@ -33,10 +34,10 @@ spec:
     authorization:
       agents-from-agent-namespace:    # SPIFFE callers must come from the agent namespace
         when:
-        - predicate: auth.identity.iss == "${SPIRE_JWT_ISSUER}"
+          - predicate: auth.identity.iss == "${SPIRE_JWT_ISSUER}"
         patternMatching:
           patterns:
-          - predicate: auth.identity.sub.startsWith("spiffe://${TRUST_DOMAIN}/ns/${AGENT_NAMESPACE}/")
+            - predicate: auth.identity.sub.startsWith("spiffe://${TRUST_DOMAIN}/ns/${AGENT_NAMESPACE}/")
     response:
       success:
         headers:

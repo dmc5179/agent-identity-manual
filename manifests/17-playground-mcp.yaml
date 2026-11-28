@@ -57,6 +57,7 @@
 # 4. The second user needs the playground's project to open the playground at all; edit is enough.
 #    edit grants nothing outside that project, which is the point: the demo question targets a
 #    namespace bob has no role in, so bob's call is refused and alice's is not:
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
@@ -67,6 +68,6 @@ roleRef:
   kind: ClusterRole
   name: edit
 subjects:
-- apiGroup: rbac.authorization.k8s.io
-  kind: User
-  name: bob                              # Keycloak preferred_username of the second demo user
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: bob                              # Keycloak preferred_username of the second demo user

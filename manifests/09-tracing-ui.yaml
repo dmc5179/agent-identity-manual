@@ -7,6 +7,7 @@
 #   multitenant Tempo. COO 1.6.0 fixes a crash on large traces (TRACING-6229).
 # This is the "who called what" view: filter spans by user.id or spiffe.id attributes that the
 # agents set (12). There is no ZTWIM/SPIRE dashboard; SPIRE only exposes Prometheus metrics.
+---
 apiVersion: observability.openshift.io/v1alpha1
 kind: UIPlugin
 metadata:

@@ -48,6 +48,7 @@
 #   oc get persesdashboard dashboard-3-maas-usage-admin -n redhat-ods-monitoring -o yaml
 #   Fill qwen3-8b-kserve-workload-svc in the second panel with the model route's service name:
 #   sum by (destination_service_name) (rate(istio_requests_total{namespace="openshift-ingress"}[5m]))
+---
 apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
 metadata:
@@ -69,15 +70,15 @@ spec:
             kind: TimeSeriesChart
             spec: {}
           queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name="mcp-gateway"}[5m]))
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: cluster-prometheus-datasource
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name="mcp-gateway"}[5m]))
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: cluster-prometheus-datasource
       maas-requests:
         kind: Panel
         spec:
@@ -87,15 +88,15 @@ spec:
             kind: TimeSeriesChart
             spec: {}
           queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|qwen3-8b-kserve-workload-svc"}[5m]))
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: cluster-prometheus-datasource
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    query: sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name=~"maas-api|qwen3-8b-kserve-workload-svc"}[5m]))
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: cluster-prometheus-datasource
       authorino:
         kind: Panel
         spec:
@@ -105,15 +106,15 @@ spec:
             kind: TimeSeriesChart
             spec: {}
           queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: sum by (status) (rate(auth_server_authconfig_response_status[5m]))
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: cluster-prometheus-datasource
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    query: sum by (status) (rate(auth_server_authconfig_response_status[5m]))
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: cluster-prometheus-datasource
       kuadrant:
         kind: Panel
         spec:
@@ -123,56 +124,56 @@ spec:
             kind: TimeSeriesChart
             spec: {}
           queries:
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: sum(rate(kuadrant_allowed[5m]))
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: cluster-prometheus-datasource
-          - kind: TimeSeriesQuery
-            spec:
-              plugin:
-                kind: PrometheusTimeSeriesQuery
-                spec:
-                  query: sum(rate(kuadrant_denied[5m]))
-                  datasource:
-                    kind: PrometheusDatasource
-                    name: cluster-prometheus-datasource
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    query: sum(rate(kuadrant_allowed[5m]))
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: cluster-prometheus-datasource
+            - kind: TimeSeriesQuery
+              spec:
+                plugin:
+                  kind: PrometheusTimeSeriesQuery
+                  spec:
+                    query: sum(rate(kuadrant_denied[5m]))
+                    datasource:
+                      kind: PrometheusDatasource
+                      name: cluster-prometheus-datasource
     layouts:
-    - kind: Grid
-      spec:
-        display:
-          title: Requests and enforcement
-          collapse:
-            open: true
-        items:
-        - x: 0
-          y: 0
-          width: 12
-          height: 8
-          content:
-            $ref: '#/spec/panels/mcp-gateway'
-        - x: 12
-          y: 0
-          width: 12
-          height: 8
-          content:
-            $ref: '#/spec/panels/maas-requests'
-        - x: 0
-          y: 8
-          width: 12
-          height: 8
-          content:
-            $ref: '#/spec/panels/authorino'
-        - x: 12
-          y: 8
-          width: 12
-          height: 8
-          content:
-            $ref: '#/spec/panels/kuadrant'
+      - kind: Grid
+        spec:
+          display:
+            title: Requests and enforcement
+            collapse:
+              open: true
+          items:
+            - x: 0
+              y: 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/mcp-gateway'
+            - x: 12
+              y: 0
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/maas-requests'
+            - x: 0
+              y: 8
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/authorino'
+            - x: 12
+              y: 8
+              width: 12
+              height: 8
+              content:
+                $ref: '#/spec/panels/kuadrant'
 # Zero-setup fallback (no patches, no dashboard): the same four numbers in the console under
 # Observe -> Metrics, one query per panel:
 #   sum by (response_code) (rate(istio_requests_total{namespace="openshift-ingress",destination_service_name="mcp-gateway"}[5m]))

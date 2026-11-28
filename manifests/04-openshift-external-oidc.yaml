@@ -37,31 +37,31 @@ spec:
   type: OIDC
   webhookTokenAuthenticator: null
   oidcProviders:
-  - name: keycloak
-    issuer:
-      issuerURL: ${KEYCLOAK_ISSUER}
-      audiences:                       # every client whose tokens should reach the API server
-      - ${KEYCLOAK_CONSOLE_CLIENT}
-      - ${KEYCLOAK_CLI_CLIENT}
-      - ${KEYCLOAK_GATEWAY_CLIENT}
-      # - devspaces                    # add if Dev Spaces signs in through Keycloak (Dev Spaces install guide)
-      issuerCertificateAuthority:
-        name: keycloak-ca              # remove this block if Keycloak's cert is publicly trusted
-    claimMappings:
-      username:
-        claim: preferred_username
-        prefixPolicy: NoPrefix         # keeps existing RoleBindings for "alice" matching
-      groups:
-        claim: groups                  # Keycloak group mapper with full path OFF, so "maas-users" not "/maas-users"
-    oidcClients:
-    - componentName: cli               # enables the console's Copy login command (oc-oidc)
-      componentNamespace: openshift-console
-      clientID: ${KEYCLOAK_CLI_CLIENT}
-    - componentName: console
-      componentNamespace: openshift-console
-      clientID: ${KEYCLOAK_CONSOLE_CLIENT}
-      clientSecret:
-        name: keycloak-console-client
+    - name: keycloak
+      issuer:
+        issuerURL: ${KEYCLOAK_ISSUER}
+        audiences:                       # every client whose tokens should reach the API server
+          - ${KEYCLOAK_CONSOLE_CLIENT}
+          - ${KEYCLOAK_CLI_CLIENT}
+          - ${KEYCLOAK_GATEWAY_CLIENT}
+        # - devspaces                    # add if Dev Spaces signs in through Keycloak (Dev Spaces install guide)
+        issuerCertificateAuthority:
+          name: keycloak-ca              # remove this block if Keycloak's cert is publicly trusted
+      claimMappings:
+        username:
+          claim: preferred_username
+          prefixPolicy: NoPrefix         # keeps existing RoleBindings for "alice" matching
+        groups:
+          claim: groups                  # Keycloak group mapper with full path OFF, so "maas-users" not "/maas-users"
+      oidcClients:
+        - componentName: cli               # enables the console's Copy login command (oc-oidc)
+          componentNamespace: openshift-console
+          clientID: ${KEYCLOAK_CLI_CLIENT}
+        - componentName: console
+          componentNamespace: openshift-console
+          clientID: ${KEYCLOAK_CONSOLE_CLIENT}
+          clientSecret:
+            name: keycloak-console-client
 # Verify after rollout:
 #   oc get kubeapiservers.operator.openshift.io cluster -o jsonpath='{.status.latestAvailableRevision}'
 #   oc login --exec-plugin=oc-oidc --issuer-url=${KEYCLOAK_ISSUER} --client-id=${KEYCLOAK_CLI_CLIENT} \

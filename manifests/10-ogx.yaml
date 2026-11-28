@@ -19,6 +19,7 @@
 #     from the 3.5.2 image's /opt/app-root/config.yaml). Without it the pod crash-loops
 #     (StackConfig: storage.backends.*_postgres.db/user missing). OGX doc 10.3 covers deploying one.
 #     The Gen AI Studio Playground avoids this with an overrideConfig that uses SQLite on the pod's PV.
+---
 apiVersion: ogx.io/v1beta1
 kind: OGXServer
 metadata:
@@ -33,67 +34,67 @@ spec:
     replicas: 1
     overrides:
       env:
-      - name: AUTH_ISSUER                 # setting this turns on oauth2_token validation
-        value: ${KEYCLOAK_ISSUER}
-      - name: AUTH_JWKS_URI
-        value: ${KEYCLOAK_ISSUER}/protocol/openid-connect/certs
-      - name: AUTH_AUDIENCE               # tokens need this in "aud" (Keycloak audience mapper)
-        value: ${KEYCLOAK_OGX_AUDIENCE}
-      - name: AUTH_VERIFY_TLS
-        value: "true"
-      - name: OTEL_EXPORTER_OTLP_ENDPOINT
-        value: http://otel-collector.${TRACING_NAMESPACE}.svc:4318
-      - name: OTEL_EXPORTER_OTLP_PROTOCOL
-        value: http/protobuf
-      - name: OTEL_SERVICE_NAME
-        value: ogx
-      - name: OTEL_METRICS_EXPORTER       # the collector in 08 takes traces only
-        value: none
-      - name: OTEL_LOGS_EXPORTER
-        value: none
-      # OGX 3.5.2's FastAPI spans use the older HTTP attribute names (http.method,
-      # http.status_code, http.target). http/dup adds the current ones (http.request.method,
-      # http.response.status_code, url.path) next to them, so either kind of dashboard works.
-      - name: OTEL_SEMCONV_STABILITY_OPT_IN
-        value: http/dup
-      # Without this, every OGX request also records 50-100 PostgreSQL statement spans
-      # (BEGIN, SELECT, COMMIT) from its metadata store, which bury the agent and model spans.
-      - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
-        value: asyncpg,sqlalchemy
-      # PostgreSQL metadata store (required). Create the Secret first:
-      #   scripts/ogx-database.sh secret < secrets/ogx-db.env   (rhoai-mass-aws)
-      # which applies Secret ogx-postgres (key password) from the credentials file
-      # scripts/ogx-database.sh create wrote.
-      - name: POSTGRES_HOST
-        value: ${OGX_DB_HOST}          # the RDS endpoint from secrets/ogx-db.env
-      - name: POSTGRES_PORT
-        value: "5432"
-      - name: POSTGRES_DB
-        value: ogx
-      - name: POSTGRES_USER
-        value: ogx
-      - name: POSTGRES_PASSWORD
-        valueFrom: {secretKeyRef: {name: ogx-postgres, key: password}}
-      # TLS to the database. RDS PostgreSQL 15 and later sets rds.force_ssl=1 and rejects a
-      # plaintext connection with: no pg_hba.conf entry for host ..., no encryption. OGX
-      # connects with asyncpg, and the distribution's config maps no env variable to its
-      # ssl_mode setting, so asyncpg falls back to PGSSLMODE. Without it, OGX 3.5.2
-      # connected in plain text and crash-looped (seen 2026-11-27).
-      - name: PGSSLMODE
-        value: require
-      # Model provider: the MaaS gateway. base_url is the gateway root — the live
-      # playground set https://maas.<apps domain>/v1 (not a per-model path); requests
-      # pick the model with its full MaaS id, for example publishers/llm/models/qwen3-8b
-      # (a bare name matches no gateway routing rule).
-      # Mint the API key as a MaaS user (the scripts/maas-user.sh flow in rhoai-mass-aws,
-      # phase 40 mints against a subscription): MaaS keys expire, at most 90 days on 3.5.2.
-      - name: VLLM_URL
-        value: https://maas.${APPS_DOMAIN}/v1
-      - name: VLLM_API_TOKEN
-        valueFrom: {secretKeyRef: {name: ogx-maas-key, key: apikey}}
-      # VLLM_TLS_VERIFY: leave unset. The MaaS route certificate is signed by the
-      # cluster's ingress CA; trust it through spec.tls.trust.caCertificates below
-      # rather than turning verification off.
+        - name: AUTH_ISSUER                 # setting this turns on oauth2_token validation
+          value: ${KEYCLOAK_ISSUER}
+        - name: AUTH_JWKS_URI
+          value: ${KEYCLOAK_ISSUER}/protocol/openid-connect/certs
+        - name: AUTH_AUDIENCE               # tokens need this in "aud" (Keycloak audience mapper)
+          value: ${KEYCLOAK_OGX_AUDIENCE}
+        - name: AUTH_VERIFY_TLS
+          value: "true"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: http://otel-collector.${TRACING_NAMESPACE}.svc:4318
+        - name: OTEL_EXPORTER_OTLP_PROTOCOL
+          value: http/protobuf
+        - name: OTEL_SERVICE_NAME
+          value: ogx
+        - name: OTEL_METRICS_EXPORTER       # the collector in 08 takes traces only
+          value: none
+        - name: OTEL_LOGS_EXPORTER
+          value: none
+        # OGX 3.5.2's FastAPI spans use the older HTTP attribute names (http.method,
+        # http.status_code, http.target). http/dup adds the current ones (http.request.method,
+        # http.response.status_code, url.path) next to them, so either kind of dashboard works.
+        - name: OTEL_SEMCONV_STABILITY_OPT_IN
+          value: http/dup
+        # Without this, every OGX request also records 50-100 PostgreSQL statement spans
+        # (BEGIN, SELECT, COMMIT) from its metadata store, which bury the agent and model spans.
+        - name: OTEL_PYTHON_DISABLED_INSTRUMENTATIONS
+          value: asyncpg,sqlalchemy
+        # PostgreSQL metadata store (required). Create the Secret first:
+        #   scripts/ogx-database.sh secret < secrets/ogx-db.env   (rhoai-mass-aws)
+        # which applies Secret ogx-postgres (key password) from the credentials file
+        # scripts/ogx-database.sh create wrote.
+        - name: POSTGRES_HOST
+          value: ${OGX_DB_HOST}          # the RDS endpoint from secrets/ogx-db.env
+        - name: POSTGRES_PORT
+          value: "5432"
+        - name: POSTGRES_DB
+          value: ogx
+        - name: POSTGRES_USER
+          value: ogx
+        - name: POSTGRES_PASSWORD
+          valueFrom: {secretKeyRef: {name: ogx-postgres, key: password}}
+        # TLS to the database. RDS PostgreSQL 15 and later sets rds.force_ssl=1 and rejects a
+        # plaintext connection with: no pg_hba.conf entry for host ..., no encryption. OGX
+        # connects with asyncpg, and the distribution's config maps no env variable to its
+        # ssl_mode setting, so asyncpg falls back to PGSSLMODE. Without it, OGX 3.5.2
+        # connected in plain text and crash-looped (seen 2026-11-27).
+        - name: PGSSLMODE
+          value: require
+        # Model provider: the MaaS gateway. base_url is the gateway root — the live
+        # playground set https://maas.<apps domain>/v1 (not a per-model path); requests
+        # pick the model with its full MaaS id, for example publishers/llm/models/qwen3-8b
+        # (a bare name matches no gateway routing rule).
+        # Mint the API key as a MaaS user (the scripts/maas-user.sh flow in rhoai-mass-aws,
+        # phase 40 mints against a subscription): MaaS keys expire, at most 90 days on 3.5.2.
+        - name: VLLM_URL
+          value: https://maas.${APPS_DOMAIN}/v1
+        - name: VLLM_API_TOKEN
+          valueFrom: {secretKeyRef: {name: ogx-maas-key, key: apikey}}
+  # VLLM_TLS_VERIFY: leave unset. The MaaS route certificate is signed by the
+  # cluster's ingress CA; trust it through spec.tls.trust.caCertificates below
+  # rather than turning verification off.
   # The cluster ingress CA covers the Keycloak route (AUTH_JWKS_URI) and the MaaS route
   # (VLLM_URL) when they use the default private CA. The ConfigMap must be in this namespace
   # and labeled ogx.io/watch: "true", or the operator never sees it:

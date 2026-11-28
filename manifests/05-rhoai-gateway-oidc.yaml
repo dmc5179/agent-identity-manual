@@ -32,4 +32,4 @@ spec:
   cookie:
     refresh: 4m                  # < Keycloak access-token lifespan (5m here)
     expire: 24h0m0s
-  enableK8sTokenValidation: true # also accept service account bearer tokens (CLI, agents)
+  enableK8sTokenValidation: true  # also accept service account bearer tokens (CLI, agents)
