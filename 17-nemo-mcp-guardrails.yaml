@@ -1,0 +1,125 @@
+# Step 17: NeMo Guardrails on the MCP gateway from 16 (GUIDE 8). Every tool call through the
+# gateway is checked: the tool call's ARGUMENTS go to NeMo before the proxy sends them to the
+# backend server, and the tool RESULT content goes to NeMo before it returns to the client. A
+# blocked request returns HTTP 403 "blocked by guardrails" to the client; a blocked tool result
+# returns to the client as an MCP tool result with isError true and the text "blocked by
+# guardrails". The checks are independent of the gateway's authentication and authorization
+# (the AuthPolicy in 16 still runs).
+# Docs: RHCL 1.5, Secure your traffic, ch. 7 "Enable guardrails on MCP gateway"
+#   https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.5/html-single/secure_your_traffic/index
+#   RHOAI 3.5, Enabling AI safety with guardrails (the NemoGuardrails CR and the rails ConfigMap).
+# Support: NeMo Guardrails is Technology Preview in RHOAI 3.5 (it can run standalone, without the
+#   rest of the TrustyAI stack). The RHCL chapter above is the documented, supported way to attach
+#   it to the MCP gateway, and this file uses only that path: no BBR ext_proc plugin, and no
+#   EnvoyFilter of our own (the RHOAI docs' mcpGateway discovery path is not used here).
+# Prerequisites:
+#   - 16-mcp-gateway.yaml applied: the MCPGatewayExtension mcp-gateway in namespace mcp-gateway
+#     targeting the Gateway openshift-ingress/mcp-gateway, with at least one MCPServerRegistration.
+#   - RHOAI 3.5 with the TrustyAI component set to Managed in the DataScienceCluster, so the
+#     TrustyAI operator can deploy the NeMo Guardrails server.
+#   - The NeMo Guardrails server must run in the SAME namespace as the MCP gateway (mcp-gateway):
+#     every object below is written there.
+# Apply in the order written (ConfigMap, NemoGuardrails, Secret, then the annotation):
+#   ./render.sh 17-nemo-mcp-guardrails.yaml --check   then   ./render.sh 17-nemo-mcp-guardrails.yaml --apply
+#   Wait for the NeMo server pod and Service to appear in mcp-gateway (oc get pods,svc -n
+#   mcp-gateway), and correct the Secret's url if the Service name or port differs. Then enable the
+#   checks with the annotation command at the end of this file, and check that the extension is
+#   Ready: oc get mcpgatewayextensions mcp-gateway -n mcp-gateway
+# Remove it (commands at the end of this file): delete the annotation FIRST, so no call is checked
+#   while the rest goes away, then the Secret, the NemoGuardrails CR and the ConfigMap.
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pii
+  namespace: mcp-gateway
+data:
+  # The configuration ID is the ConfigMap name ("pii"): the NemoGuardrails CR below publishes it
+  # under that name, and the Secret's configIDs list refers to it.
+  config.yaml: |
+    rails:
+      config:
+        sensitive_data_detection:
+          input:
+            entities:
+            - EMAIL_ADDRESS
+            - PERSON
+            - US_SSN
+          output:
+            entities:
+            - EMAIL_ADDRESS
+            - PERSON
+      input:
+        flows:
+        - detect sensitive data on input
+      output:
+        flows:
+        - detect sensitive data on output
+  # Built-in rails only: no custom Colang flows and no judge LLM. NeMo answers
+  # /v1/guardrail/checks without an LLM call.
+  rails.co: |
+    # No custom Colang flows: the built-in rails in config.yaml are all this config needs.
+# The docs also show a regex rail (quick start 1.1: the flow "regex check input" blocked
+# "password"), but they do not state its config schema field names, so the rail is left out here
+# rather than guessed. If you add one, note that a regex in a single-quoted YAML scalar needs
+# single backslashes (\b, not \\b as a double-quoted scalar would).
+---
+apiVersion: trustyai.opendatahub.io/v1alpha1
+kind: NemoGuardrails
+metadata:
+  name: nemo-guardrails
+  namespace: mcp-gateway
+  annotations:
+    # check: the RHOAI docs' examples set 'true' and call /v1/guardrail/checks with a Bearer
+    # token, and they do not say which value the RHCL gateway integration needs. The gateway calls
+    # NeMo in-cluster with no bearer token, so 'false' is set here. If NeMo refuses the gateway's
+    # checks with 401, try 'true' and re-test.
+    security.opendatahub.io/enable-auth: 'false'
+spec:
+  # The config ID "pii" maps to the ConfigMap above; the Secret below lists it in configIDs.
+  nemoConfigs:
+  - configMaps:
+    - pii
+    name: pii
+  # No spec.template.pod.mcpGateway: that field is the RHOAI docs' discovery path (it scans for
+  # the BBR ext_proc plugin in EnvoyFilters in the gateway namespace), which this file does not
+  # use. The RHCL gateway integration only needs the NeMo server running in this namespace, and
+  # reads its endpoint from the Secret below.
+---
+# The Secret the gateway controller reads (RHCL ch. 7): same namespace as the MCPGatewayExtension,
+# label mcp.kuadrant.io/secret "true", type guardrails/external/nemo. No bearer token or CA
+# material goes here.
+#   url: check — the exact Service name and port of the NeMo server (oc get svc -n mcp-gateway
+#     after the NemoGuardrails CR is Ready); the value below follows the docs' example pattern,
+#     https://nemo-guardrails.mcp-system.svc.cluster.local:8080, rewritten for this namespace.
+#   model: required by the docs, but built-in rails never call a model, so it is a placeholder.
+#   failMode: allow keeps tool calls flowing without a verdict while NeMo is unreachable; deny
+#     (the default) makes every tool call fail with HTTP 503 "guardrails check unavailable" while
+#     NeMo is down.
+apiVersion: v1
+kind: Secret
+metadata:
+  labels:
+    mcp.kuadrant.io/secret: "true"
+  name: nemo-guardrails
+  namespace: mcp-gateway
+stringData:
+  config.yaml: |
+    url: https://nemo-guardrails.mcp-gateway.svc.cluster.local:8080
+    configIDs:
+    - pii
+    model: unused-built-in-rails-only
+    failMode: allow
+type: guardrails/external/nemo
+# Enable the checks: an annotation on the MCPGatewayExtension from 16, not a new object.
+#   oc annotate mcpgatewayextensions mcp-gateway -n mcp-gateway \
+#     mcp.kuadrant.io/guardrails-ref=nemo-guardrails --overwrite
+# Optional, per server only (extends the global config; the global rails run first): pin config IDs
+# on one MCPServerRegistration, for example:
+#   oc annotate mcpserverregistrations openshift-mcp -n openshift-mcp-server \
+#     mcp.kuadrant.io/guardrails-config-ids="pii" --overwrite
+# Remove (in this order; the annotation first, so no call is checked while the rest goes away):
+#   oc annotate mcpgatewayextensions mcp-gateway -n mcp-gateway mcp.kuadrant.io/guardrails-ref-
+#   oc delete secret nemo-guardrails -n mcp-gateway
+#   oc delete nemoguardrails nemo-guardrails -n mcp-gateway
+#   oc delete configmap pii -n mcp-gateway

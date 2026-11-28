@@ -54,6 +54,7 @@ issues that affect it.
 | 14 | `14-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
 | 15 | `15-playground-mcp.yaml` (optional) | 8 (MCP gateway); a tool-calling model and a playground in one project | no |
 | 16 | `16-mcp-gateway.yaml` | Connectivity Link 1.5 (MCP gateway operator), a Kuadrant CR; the MCP server for Red Hat OpenShift installed by Helm; apply before 15 | no |
+| 17 | `17-nemo-mcp-guardrails.yaml` (optional) | 16; the TrustyAI component Managed in the DataScienceCluster | no |
 
 ZTWIM first, then SPIRE, as SPIRE reads the trust domain and cluster name from the ZTWIM resource.
 If you plan to use SPIRE as the Service Mesh CA (13), set `CREATE_ONLY_MODE=true` on the ZTWIM
@@ -92,6 +93,7 @@ files: each file gives the `oc create secret` command.
 | TRACE-FORMAT.md | OTLP structure from a real trace read back from Tempo; OGX span names read from the OGX 3.5.2 server image and confirmed against live OGX traces (2026-11-27); metric names read from the image |
 | 14 | Patch targets and fields from the RHOAI 3.5 docs and `oc explain` on 3.5.2; the four queries are metrics that carried data on the lab's user-workload monitoring (2026-11-27). Not applied: copy the datasource from `dashboard-3-maas-usage-admin` first (the file says how) |
 | 15 | The ConfigMap entry format, the MCP tab flow, gateway acceptance of `ogx-token.sh` tokens, and the per-user RBAC result were checked on our lab (RHOAI 3.5.2, 2026-11-27), from the RHOAI 3.5 playground docs. The OGXServer TLS patch is not verified: the dashboard creates and may rewrite that object (check: in the file) |
+| 17 | Docs only (RHCL 1.5 ch. 7 "Enable guardrails on MCP gateway", RHOAI 3.5 guardrails): not applied to the lab. The NeMo Service name and port in the Secret, and the `enable-auth` value on the NemoGuardrails CR, are marked `check:` in the file. The `--mcp-args-guarded` demo option was verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, `--dry-run` with a stub `oc`, and the plan and report paths |
 
 ## Sources
 

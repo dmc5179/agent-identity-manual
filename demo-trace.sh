@@ -36,6 +36,15 @@
 # mcp.tool.is_error=true and the script prints the refusal as an expected result, not a failure.
 # Requires --mcp-tool; see GUIDE.md section 7.
 #
+# Guardrail step (--mcp-args-guarded JSON, or DEMO_MCP_ARGS_GUARDED in demo.env): after the normal
+# MCP step, the LAST agent makes one more tools/call for the SAME tool with THESE arguments ("$NS"
+# becomes the agent's namespace, as in --mcp-args). With 17-nemo-mcp-guardrails.yaml applied and
+# the guardrails annotation set on the MCPGatewayExtension, the gateway sends the arguments to NeMo
+# first: arguments containing an email address are refused with HTTP 403 "blocked by guardrails".
+# The span records mcp.tool.is_error and the HTTP status, and the script prints "BLOCKED BY
+# GUARDRAILS (expected)" on a 403 or a blocked tool result, or a warning otherwise.
+# Requires --mcp-tool.
+#
 # OGX hop (--ogx-url URL, or DEMO_OGX_URL in demo.env): after its steps, the LAST agent makes one
 # real OpenAI Responses request to OGX (POST <url>/v1/responses, model OGX_MODEL), authenticated
 # with DEMO_OGX_TOKEN, and records it as a "POST /v1/responses" client span with the real duration
@@ -62,11 +71,12 @@
 set -euo pipefail
 cd "$(dirname "$0")"; [ -f vars.env ] && { set -a; . ./vars.env; set +a; }
 [ -f demo.env ] && { set -a; . ./demo.env; set +a; }
-usage() { sed -n '2,57p' "$0"; }
+usage() { sed -n '2,66p' "$0"; }
 
 USER_ID="${DEMO_USER:-demo-user}"; ENTRY_URL=""; DRY=0; AGENTS=()
 MCP_TOOL="${DEMO_MCP_TOOL:-}"; MCP_ARGS="${DEMO_MCP_ARGS:-{\}}"; MCP_LIST=""
 MCP_CONTRAST="${DEMO_MCP_CONTRAST:-}"; CONTRAST_STEP=0
+MCP_ARGS_GUARDED="${DEMO_MCP_ARGS_GUARDED:-}"
 OGX_URL="${DEMO_OGX_URL:-}"; OGX_MODEL="${DEMO_OGX_MODEL:-vllm-inference/publishers/llm/models/qwen3-8b}"
 OGX_PROMPT="${DEMO_OGX_PROMPT:-}"; OGX_MCP="${DEMO_OGX_MCP:-0}"; OGX_MCP_FLAG=0; OGX_TOKEN="${DEMO_OGX_TOKEN:-}"
 while [ $# -gt 0 ]; do
@@ -75,6 +85,7 @@ while [ $# -gt 0 ]; do
     --mcp-tool) MCP_TOOL="$2"; shift 2 ;;
     --mcp-list) MCP_LIST=1; shift ;;
     --mcp-args) MCP_ARGS="$2"; shift 2 ;;
+    --mcp-args-guarded) MCP_ARGS_GUARDED="$2"; shift 2 ;;
     --mcp-contrast) MCP_CONTRAST="$2"; shift 2 ;;
     --entry-url) ENTRY_URL="$2"; shift 2 ;;
     --ogx-url) OGX_URL="$2"; shift 2 ;;
@@ -104,6 +115,10 @@ if [ -n "$MCP_CONTRAST" ]; then
   [ -n "$spec" ] || { echo "--mcp-contrast expects namespace/serviceaccount[=Name]: $MCP_CONTRAST" >&2; exit 2; }
   AGENTS+=("$MCP_CONTRAST"); CONTRAST_STEP=${#AGENTS[@]}
 fi
+if [ -n "$MCP_ARGS_GUARDED" ]; then
+  [ -n "$MCP_TOOL" ] || { echo "--mcp-args-guarded requires --mcp-tool: the guarded call repeats the same tool" >&2; exit 2; }
+  [ -z "$ENTRY_URL" ] || { echo "--mcp-args-guarded adds its own step and does not apply with --entry-url" >&2; exit 2; }
+fi
 
 NS_TRACING="${TRACING_NAMESPACE:-tracing}"
 OTLP="${OTLP_ENDPOINT:-http://otel-collector.${NS_TRACING}.svc.cluster.local:4318}"
@@ -124,6 +139,10 @@ if [ -z "$MCP_HOST" ] && { [ -n "$MCP_TOOL" ] || [ -n "$MCP_LIST" ] || [ "${OGX_
 fi
 python3 -c 'import json,sys; json.loads(sys.argv[1])' "$MCP_ARGS" 2>/dev/null \
   || { echo "--mcp-args is not valid JSON: $MCP_ARGS" >&2; exit 2; }
+if [ -n "$MCP_ARGS_GUARDED" ]; then
+  python3 -c 'import json,sys; json.loads(sys.argv[1])' "$MCP_ARGS_GUARDED" 2>/dev/null \
+    || { echo "--mcp-args-guarded is not valid JSON: $MCP_ARGS_GUARDED" >&2; exit 2; }
+fi
 DEMO_T0="$(date +%s%N)"; DEMO_PACE="${DEMO_PACE:-1.0}"
 
 # One hop: read context from env, open a span as this agent, print the context for the next hop.
@@ -218,11 +237,12 @@ def ogx_call(ctx_for_headers):
         text = raw[:120]
     return code, (text or raw)[:160].replace("\n", " "), len(raw)
 
-def mcp_call(ctx_for_headers):
+def mcp_call(ctx_for_headers, args_env="MCP_ARGS"):
     """One real tools/call through the MCP gateway with this pod's service account token.
-    Returns (is_error, summary, result_bytes, http_status)."""
+    args_env names the env var carrying the tool arguments, so the guarded call (below) reuses
+    this code with MCP_ARGS_GUARDED. Returns (is_error, summary, result_bytes, http_status)."""
     url, host, tool = os.environ["MCP_URL"], os.environ["MCP_HOST"], os.environ["MCP_TOOL"]
-    args = json.loads(os.environ.get("MCP_ARGS") or "{}".replace("$NS", ""))
+    args = json.loads(os.environ.get(args_env) or "{}")
     args = json.loads(json.dumps(args).replace("$NS", os.environ.get("NS", "")))
     tok = open("/var/run/secrets/kubernetes.io/serviceaccount/token").read().strip()
     trace_headers = {}; propagate.inject(trace_headers, context=ctx_for_headers)
@@ -272,6 +292,7 @@ span = tracer.start_span(f"{name}.handle", kind=SpanKind.SERVER, start_time=at(p
 sctx = trace.set_span_in_context(span)
 out = {}
 mcp_report = None
+mcp_guarded_report = None
 ogx_report = None
 for w in plan["steps"]:
     if w.get("ogx") and os.environ.get("OGX_URL"):
@@ -321,6 +342,27 @@ for w in plan["steps"]:
         child.end(end_time=min(at(w["start"]) + int(ms * 1e6), at(w["end"])))
         mcp_report = (tool, is_err, round(ms), summary)
         continue
+    if w.get("mcp_guarded") and os.environ.get("MCP_ARGS_GUARDED"):
+        # The guardrail test (17): the same tool again with arguments that should trip a rail.
+        # Same span shape as the mcp step; the bash side labels the outcome from the report.
+        from opentelemetry.trace import Status, StatusCode
+        tool = os.environ["MCP_TOOL"]
+        child = tracer.start_span("tools/call " + tool + " (guarded)", context=sctx, kind=SpanKind.CLIENT,
+                                  start_time=at(w["start"]),
+                                  attributes={**ids, "demo.simulated": False, "mcp.method.name": "tools/call",
+                                              "gen_ai.tool.name": tool, "server.address": os.environ["MCP_HOST"]})
+        t = time.time()
+        is_err, summary, nbytes, code = mcp_call(trace.set_span_in_context(child, sctx), "MCP_ARGS_GUARDED")
+        ms = (time.time() - t) * 1000
+        child.set_attribute("mcp.tool.is_error", is_err)
+        child.set_attribute("mcp.result.bytes", nbytes)
+        child.set_attribute("http.response.status_code", int(code or 0))
+        child.set_attribute("demo.measured_duration_ms", round(ms, 1))
+        if is_err:
+            child.set_status(Status(StatusCode.ERROR, summary[:120]))
+        child.end(end_time=min(at(w["start"]) + int(ms * 1e6), at(w["end"])))
+        mcp_guarded_report = (code, is_err, round(ms), summary)
+        continue
     kind = SpanKind.CLIENT if w.get("call") else SpanKind.INTERNAL
     child = tracer.start_span(w["name"], context=sctx, kind=kind, start_time=at(w["start"]),
                               attributes={**ids, "demo.simulated": True})
@@ -338,6 +380,8 @@ print("DEMO_TRACE_ID=" + tid)
 print("DEMO_SPIFFE_ID=" + sid)
 if mcp_report:
     print("DEMO_MCP=%s|%s|%s|%s" % mcp_report)
+if mcp_guarded_report:
+    print("DEMO_MCP_GUARDED=%s|%s|%s|%s" % mcp_guarded_report)
 if ogx_report:
     print("DEMO_OGX=%s|%s|%s|%s" % ogx_report)
 PY
@@ -347,10 +391,11 @@ TRACEPARENT=""; BAGGAGE=""; TRACE_ID=""
 # The timeline: one JSON plan per hop (offsets in seconds from DEMO_T0). Built from the last agent
 # back, because each agent's "call" step has to last as long as the next agent's whole span.
 plan_hops() {
-  DEMO_PACE="$DEMO_PACE" MCP_TOOL="$MCP_TOOL" OGX_URL="$OGX_URL" CONTRAST="$([ -n "$MCP_CONTRAST" ] && echo 1)" python3 -I -c '
+  DEMO_PACE="$DEMO_PACE" MCP_TOOL="$MCP_TOOL" OGX_URL="$OGX_URL" CONTRAST="$([ -n "$MCP_CONTRAST" ] && echo 1)" MCP_ARGS_GUARDED="$MCP_ARGS_GUARDED" python3 -I -c '
 import json, os, random, sys
 names, pace = sys.argv[1:], float(os.environ["DEMO_PACE"])
 use_mcp = bool(os.environ.get("MCP_TOOL"))
+use_guarded = bool(os.environ.get("MCP_ARGS_GUARDED"))
 use_ogx = bool(os.environ.get("OGX_URL"))
 # With --mcp-contrast the contrast account is an extra hop after the last real agent: the real
 # agent still makes the allowed call (and the OGX call), and the contrast hop makes the same call.
@@ -366,6 +411,9 @@ def build(i):
         if n == "tool lookup" and mcp_here:
             n, a, b = "mcp", 1.5, 2.0       # the real tools/call; its slot, not its duration
         d = r(a, b); steps.append({"name": n, "start": t, "end": t + d, "mcp": n == "mcp"}); t += d + 0.05
+    if last and use_guarded:
+        d = r(1.0, 1.5)                    # the guarded tools/call; its slot, not its duration
+        steps.append({"name": "mcp-guarded", "start": t, "end": t + d, "mcp_guarded": True}); t += d + 0.05
     if last and use_ogx:
         d = r(6.0, 12.0)                   # the real POST /v1/responses; model time may exceed the slot
         steps.append({"name": "ogx", "start": t, "end": t + d, "ogx": True}); t += d + 0.05
@@ -393,6 +441,7 @@ for x in plans:
 if [ $DRY -eq 1 ]; then
   echo "Dry run: user.id=$USER_ID  collector=$OTLP  image=$IMAGE"
   [ -n "$MCP_TOOL" ] && echo "  MCP: the last agent calls $MCP_TOOL $MCP_ARGS via $MCP_URL (Host $MCP_HOST)"
+  [ -n "$MCP_ARGS_GUARDED" ] && echo "  MCP guarded: the last agent calls $MCP_TOOL $MCP_ARGS_GUARDED again — HTTP 403 (blocked by guardrails) is the expected result"
   [ -n "$OGX_URL" ] && [ -n "$OGX_PROMPT" ] && echo "  OGX prompt: $OGX_PROMPT"
   [ -n "$OGX_URL" ] && echo "  OGX: the last agent POSTs $OGX_URL/v1/responses (model $OGX_MODEL$([ "$OGX_MCP" -eq 1 ] && echo ", MCP tool server https://$MCP_HOST/mcp"), token $([ -n "$OGX_TOKEN" ] && echo present || echo "MISSING — an OGX with AUTH_ISSUER set will refuse with 401"))"
   [ -n "$MCP_LIST" ] && { echo "  would list the MCP gateway's tools as the first agent's service account via $MCP_URL (Host $MCP_HOST)"; exit 0; }
@@ -436,11 +485,12 @@ else
     USER_ID="$USER_ID" TRACEPARENT="$TRACEPARENT" BAGGAGE="$BAGGAGE" HOP_PY="$HOP_PY" \
     DEMO_T0="$DEMO_T0" DEMO_PLAN="${PLANS[$((step - 1))]}" \
     MCP_TOOL="$MCP_TOOL" MCP_ARGS="$MCP_ARGS" MCP_URL="$MCP_URL" MCP_HOST="$MCP_HOST" MCP_LIST="$MCP_LIST" \
+    MCP_ARGS_GUARDED="$MCP_ARGS_GUARDED" \
     OGX_URL="$OGX_URL" OGX_MODEL="$OGX_MODEL" OGX_MCP="$OGX_MCP" OGX_TOKEN="$OGX_TOKEN" OGX_PROMPT="$OGX_PROMPT" python3 -I -c '
 import json, os
 e = os.environ
 env = [{"name": k, "value": e[k]} for k in ("AGENT_NAME", "USER_ID", "STEP", "OTLP", "TRACEPARENT", "BAGGAGE", "HOP_PY", "DEMO_T0", "DEMO_PLAN",
-                                      "MCP_TOOL", "MCP_ARGS", "MCP_URL", "MCP_HOST", "NS", "MCP_LIST",
+                                      "MCP_TOOL", "MCP_ARGS", "MCP_ARGS_GUARDED", "MCP_URL", "MCP_HOST", "NS", "MCP_LIST",
                                       "OGX_URL", "OGX_MODEL", "OGX_MCP", "OGX_TOKEN", "OGX_PROMPT")]
 env += [{"name": "SPIFFE_ENDPOINT_SOCKET", "value": "unix:///spiffe-workload-api/spire-agent.sock"},
         {"name": "HOME", "value": "/tmp"}]
@@ -481,6 +531,16 @@ print(json.dumps({"apiVersion": "v1", "kind": "Pod",
         fi
       else
         echo "    MCP tools/call $mtool via $MCP_HOST: $([ "$merr" = True ] && echo ERROR || echo ok) in ${mms} ms: ${msum:0:110}"
+      fi
+    fi
+    mg=$(sed -n 's/^DEMO_MCP_GUARDED=//p' <<<"$out")
+    if [ -n "$mg" ]; then
+      IFS='|' read -r gcode gerr gms gsum <<<"$mg"
+      if [ "$gcode" = "403" ] || [[ "${gsum,,}" == *"blocked by guardrails"* ]]; then
+        echo "    BLOCKED BY GUARDRAILS (expected): tools/call $MCP_TOOL with the guarded arguments: HTTP $gcode in ${gms} ms: ${gsum:0:110}"
+      else
+        echo "    WARNING: the guarded call was NOT blocked (HTTP $gcode, mcp.tool.is_error=$gerr, ${gms} ms): ${gsum:0:110}" >&2
+        echo "    Is 17-nemo-mcp-guardrails.yaml applied and mcp.kuadrant.io/guardrails-ref set on the extension?" >&2
       fi
     fi
     ogx=$(sed -n 's/^DEMO_OGX=//p' <<<"$out")

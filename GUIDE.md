@@ -405,6 +405,21 @@ in only one version (for example the Red Hat Offline Knowledge Portal MCP server
 tool list of clients on the other version. Set `spec.supportedProtocolVersions` on its
 MCPServerRegistration to the versions it really serves.
 
+### Guardrails on tool calls (NeMo)
+
+`17-nemo-mcp-guardrails.yaml` puts NeMo Guardrails in front of this gateway: it checks every tool
+call's arguments before the gateway proxies the call, and every tool result before it returns to
+the client. Arguments that trip a rail come back as HTTP 403 "blocked by guardrails"; a result
+that trips a rail returns as an MCP error result. The file uses the built-in rails only (email
+addresses, person names, US Social Security numbers), so no judge LLM is involved. The integration
+is Technology Preview on RHOAI 3.5. Apply the file, wait for the NeMo server to run in
+`mcp-gateway`, then set the annotation from the file header. The demo can show the checks in one
+trace: with `demo-trace.sh --mcp-args-guarded '{"namespace":"$NS","note":"contact alice@example.com"}'`
+the last agent repeats its tool call, the normal call passes, and the guarded call, whose arguments
+contain an email address, is refused with 403. A tool result that contains a person's name comes
+back as an error result the same way. To remove the checks, delete the annotation on the
+MCPGatewayExtension first (the file header gives the order).
+
 ### Playground: one question, two users
 
 Apply `15-playground-mcp.yaml` and the commands in its header: the gateway as a ConfigMap key (its

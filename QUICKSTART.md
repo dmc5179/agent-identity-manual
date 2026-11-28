@@ -25,6 +25,7 @@ Put every value in `demo.env`, a copy of `demo.env.example`.
 | Two or three agents | `DEMO_AGENTS` | `agents/planner=Planner agents/researcher=Researcher tools/mcp-client=MCP-Client` | `namespace/serviceaccount=Display name`, in call order. The service accounts exist (file `12-example-agent.yaml`); the SPIFFE ID rule selects their pods |
 | One MCP tool and its arguments | `DEMO_MCP_TOOL`, `DEMO_MCP_ARGS` | `openshift_pods_list_in_namespace`, `{"namespace":"$NS"}` | Registered on the MCP gateway; give the last agent's service account RBAC for the tool. `$NS` becomes the agent namespace |
 | Contrast service account | `DEMO_MCP_CONTRAST` | `agents/demo-no-rbac=No-RBAC` | Create it with no role bindings, so the MCP server refuses its call |
+| Guardrail test arguments | `DEMO_MCP_ARGS_GUARDED` | `{"namespace":"$NS","note":"contact alice@example.com"}` | With `17-nemo-mcp-guardrails.yaml` applied: the last agent repeats the tool call with these arguments and the gateway refuses them (403). Needs `DEMO_MCP_TOOL` |
 | OGX URL | `DEMO_OGX_URL` | `http://ogx-service.agents.svc.cluster.local:8321` | `<OGXServer>-service.<namespace>.svc.cluster.local:8321`; the operator names the Service after the OGXServer |
 | OGX model id | `DEMO_OGX_MODEL` | `vllm-inference/publishers/llm/models/qwen3-8b` | OGX prefixes `vllm-inference/` to the MaaS model id |
 | Question for OGX | `DEMO_OGX_PROMPT` | `How many pods are running in the namespace $NS? Use the tool.` | Ask something the MCP tool can answer, so OGX records an `invoke_mcp_tool` span |
