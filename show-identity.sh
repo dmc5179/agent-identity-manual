@@ -124,8 +124,15 @@ try:
         if key == "aud" and isinstance(value, list):
             value = " ".join(str(item) for item in value)
         print("  {}: {}".format(key, value))
+    now = int(time.time())
     if exp:
-        print("  remaining lifetime: {:.1f} min".format((exp - int(time.time())) / 60.0))
+        print("  stated expiry in: {:.1f} min".format((exp - now) / 60.0))
+    # Kubernetes extends the stated expiry of the default token for older clients; warnafter is
+    # when the kubelet really replaces it (about an hour after it was issued).
+    warn = (claims.get("kubernetes.io") or {}).get("warnafter")
+    if warn:
+        print("  replaced by the kubelet in: {:.1f} min (kubernetes.io.warnafter; the long exp is a".format((int(warn) - now) / 60.0))
+        print("    compatibility extension for older clients)")
 except Exception as exc:
     print("  could not decode the token claims: {}: {}".format(type(exc).__name__, exc))
 
@@ -141,6 +148,9 @@ else:
     print("  (SPIFFE_ENDPOINT_SOCKET={})".format(socket_uri))
 
 # 3. The SPIFFE ID: fetched with py-spiffe when possible, otherwise the expected one.
+import importlib
+sys.path.insert(0, "/tmp/pylib")
+
 def fetch_spiffe_id():
     try:
         from spiffe import WorkloadApiClient
@@ -149,24 +159,37 @@ def fetch_spiffe_id():
             subprocess.run(
                 [sys.executable, "-I", "-m", "pip", "install", "--quiet",
                  "--target", "/tmp/pylib", "spiffe"],
-                check=True, capture_output=True, timeout=30)
+                check=True, capture_output=True, timeout=180)
         except Exception:
             return None, ("py-spiffe is not installed and pip could not install it"
                           " (for example on a disconnected cluster)")
+        importlib.invalidate_caches()
         try:
             from spiffe import WorkloadApiClient
         except ImportError:
             return None, "py-spiffe is still not importable after the pip install"
     try:
-        svid = WorkloadApiClient().fetch_x509_svid()
-        return str(svid.spiffe_id), "fetched from the workload API with py-spiffe"
+        with WorkloadApiClient() as client:
+            svid = client.fetch_x509_svid()
+            jwt = None
+            try:
+                # A JWT-SVID for a made-up audience: only its claims are shown, never the token.
+                j = client.fetch_jwt_svid(audience={"show-identity"})
+                jwt = (j.expiry, sorted(j.audience))
+            except Exception:
+                pass
+        return (str(svid.spiffe_id), jwt), "fetched from the workload API with py-spiffe"
     except Exception:
         return None, "the workload API call failed (is the SPIRE agent socket mounted and SPIRE ready?)"
 
-spiffe_id, how = fetch_spiffe_id()
+fetched, how = fetch_spiffe_id()
+spiffe_id, jwt = fetched if fetched else (None, None)
 print()
 if spiffe_id:
     print("SPIFFE ID: {} ({})".format(spiffe_id, how))
+    if jwt:
+        print("  JWT-SVID (the short-lived credential for outbound calls): expires in {:.1f} min, audience {}".format(
+            (int(jwt[0]) - int(time.time())) / 60.0, " ".join(jwt[1])))
 else:
     print("SPIFFE ID: spiffe://{}/ns/{}/sa/{} (expected, not fetched)".format(trust_domain, ns, sa))
     print("  {}".format(how))

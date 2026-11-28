@@ -355,14 +355,17 @@ pod. The **YAML** tab shows what its identity is built from: `serviceAccountName
 label `agent-identity: "true"` that the ClusterSPIFFEID named `agents` selects, and the CSI volume
 with driver `csi.spiffe.io` mounted read-only at `/spiffe-workload-api` (`SPIFFE_ENDPOINT_SOCKET`).
 The **Terminal** tab shows the projected service account token under
-`/var/run/secrets/kubernetes.io/serviceaccount` (rotated by the kubelet). The agent's identity is a
+`/var/run/secrets/kubernetes.io/serviceaccount`, which the kubelet replaces about hourly (its claims
+show a one-year `exp`: Kubernetes extends the stated expiry for older clients, so do not present that
+token as the short-lived credential). The agent's identity is a
 SPIFFE ID derived from its namespace and service account,
 `spiffe://<trust-domain>/ns/agent-id-test/sa/agent-a`; SPIRE issues it to this pod only, with a
 5-minute JWT-SVID TTL, so nothing is a shared static secret. One honest limit: the platform issues
 and checks these identities at the gateway and the MCP server, but the agent itself writes the
 `spiffe.id` attribute onto its own trace spans. `./show-identity.sh agent-id-test/agent-a` prints
-the same facts from a terminal: the token claims, the socket check, the SPIFFE ID, the service
-account.
+the same facts from a terminal: the service account, the token's claims and real replacement time,
+the socket check, the SPIFFE ID fetched from SPIRE, and a JWT-SVID expiring in 5 minutes (only its
+claims; no token is printed).
 
 ## 8. MCP tools through the MCP gateway
 
