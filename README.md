@@ -7,7 +7,9 @@ Cluster Observability Operator and OpenShift Service Mesh 3. No AutoShift, no He
 **Start with [QUICKSTART.md](QUICKSTART.md)**, a one-page path to build the environment and run the demo. [GUIDE.md](GUIDE.md) has the steps, commands, checks and troubleshooting. Helpers: `render.sh` (fills
 `vars.env` into a file, then prints, dry-runs or applies it), `verify.sh` (one line per component), `trace-query.sh`
 (prints one trace with the user and SPIFFE ID on each hop), `demo-trace.sh` (a fresh user → agent → agent trace
-for any agents you name, optionally with a real MCP tool call), `ogx-token.sh` (the Keycloak user
+for any agents you name, optionally with a real MCP tool call), `show-identity.sh` (one agent pod's identity,
+printed from inside the pod: the projected service account token's claims with the remaining lifetime, the
+SPIFFE workload API socket, the SPIFFE ID, and the pod's service account), `ogx-token.sh` (the Keycloak user
 token with the `ogx-api` audience OGX requires, for the demo's OGX hop), and `demo-run.sh` (the
 whole demo in one command: pre-flight, the agent chain, the contrast run, the OGX hop, and a summary
 with the trace IDs). [TRACE-FORMAT.md](TRACE-FORMAT.md) describes
@@ -85,6 +87,7 @@ files: each file gives the `oc create secret` command.
 | 13 | From the Red Hat docs only; Service Mesh is not on our lab |
 | `demo-trace.sh` MCP step | Run on the lab 2026-11-25 with and without `--mcp-tool`: the last agent's `tools/call` through the Connectivity Link 1.5 MCP gateway to the MCP server for Red Hat OpenShift, authenticated as the agent's service account; the server applied the agent's own RBAC |
 | `demo-run.sh` | Verified offline: `bash -n`, `shellcheck` with 0 warnings, `--help`, and the step flow (full run, `--dry-run`, `--skip-ogx`, `--step 3`, a failing step) against stub helpers. Not yet run against the lab |
+| `show-identity.sh` | Verified offline: `bash -n`, `shellcheck` with 0 warnings, and the inline Python against a fake JWT (claims, remaining lifetime, no token or signature printed) and a stub `oc` (default target from `demo.env`, `--help`, a failed login). The SPIFFE ID fallback path is exercised; a live py-spiffe fetch is not (needs a cluster) |
 | TRACE-FORMAT.md | OTLP structure from a real trace read back from Tempo; OGX span names read from the OGX 3.5.2 server image and confirmed against live OGX traces (2026-11-27); metric names read from the image |
 | 14 | Patch targets and fields from the RHOAI 3.5 docs and `oc explain` on 3.5.2; the four queries are metrics that carried data on the lab's user-workload monitoring (2026-11-27). Not applied: copy the datasource from `dashboard-3-maas-usage-admin` first (the file says how) |
 | 15 | The ConfigMap entry format, the MCP tab flow, gateway acceptance of `ogx-token.sh` tokens, and the per-user RBAC result were checked on our lab (RHOAI 3.5.2, 2026-11-27), from the RHOAI 3.5 playground docs. The OGXServer TLS patch is not verified: the dashboard creates and may rewrite that object (check: in the file) |
