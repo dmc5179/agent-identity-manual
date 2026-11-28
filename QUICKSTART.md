@@ -36,7 +36,7 @@ Put every value in `demo.env`, a copy of `demo.env.example`.
 Work through this list top to bottom; the file numbers match the apply order. Fill `vars.env` first
 (copy `vars.env.example`), because every `render.sh` command reads it.
 
-### Step 0. Install these operators first
+### Before you start: install these operators
 
 | Operator | Needed by (files) | Ready when |
 |---|---|---|
@@ -49,67 +49,67 @@ Work through this list top to bottom; the file numbers match the apply order. Fi
 | Red Hat OpenShift AI 3.5 with the TrustyAI, OGX and Models-as-a-Service components | 05, 06, 10, 12, 15, 17 | the CSV shows Succeeded: `oc get csv -A \| grep rhods`, and the DataScienceCluster lists those components as Managed |
 | OpenShift Service Mesh 3 (only for the optional mesh step) | 13 | the CSV shows Succeeded: `oc get csv -A \| grep ossm` |
 
-### Steps 1–21. Apply in this order
+### Steps 0–20: apply in this order (step N applies file NN)
 
-1. **Keycloak realm** ([GUIDE 0](GUIDE.md#0-prepare-15-min)) — creates the realm's clients, groups and token mappers that every later step trusts.
+0. **Keycloak realm** ([GUIDE 0](GUIDE.md#0-prepare-15-min)) — creates the realm's clients, groups and token mappers that every later step trusts.
    Import: in Keycloak, Realm settings → Action → Partial import with `00-keycloak-realm-clients.json`, after filling the `${...}` values (or `kcadm`).
    Check: `curl -skf "$KEYCLOAK_ISSUER/.well-known/openid-configuration"` answers for the realm, and the Clients tab lists the imported clients.
-2. **Workload identity** ([GUIDE 1](GUIDE.md#1-workload-identity-no-downtime-15-min)) — sets the SPIFFE trust domain and cluster name that every later identity object reads.
+1. **Workload identity** ([GUIDE 1](GUIDE.md#1-workload-identity-no-downtime-15-min)) — sets the SPIFFE trust domain and cluster name that every later identity object reads.
    Command: `./render.sh 01-ztwim.yaml --check && ./render.sh 01-ztwim.yaml --apply`
    Check: `oc get zerotrustworkloadidentitymanagers.operator.openshift.io cluster` shows the singleton with your trust domain.
-3. **SPIRE** ([GUIDE 1](GUIDE.md#1-workload-identity-no-downtime-15-min)) — deploys the SPIRE server, one agent per node, the CSI driver and the OIDC discovery provider.
+2. **SPIRE** ([GUIDE 1](GUIDE.md#1-workload-identity-no-downtime-15-min)) — deploys the SPIRE server, one agent per node, the CSI driver and the OIDC discovery provider.
    Command: `./render.sh 02-spire.yaml --check && ./render.sh 02-spire.yaml --apply`
    Check: `oc get pods -n zero-trust-workload-identity-manager` shows `spire-server-0` Running and one `spire-agent` per node.
-4. **Agent SPIFFE IDs** ([GUIDE 1](GUIDE.md#1-workload-identity-no-downtime-15-min)) — gives pods labeled `agent-identity: "true"` an explicit SPIFFE ID and a 5-minute JWT TTL.
+3. **Agent SPIFFE IDs** ([GUIDE 1](GUIDE.md#1-workload-identity-no-downtime-15-min)) — gives pods labeled `agent-identity: "true"` an explicit SPIFFE ID and a 5-minute JWT TTL.
    Command: `./render.sh 03-agent-spiffe-ids.yaml --check && ./render.sh 03-agent-spiffe-ids.yaml --apply`
    Check: `oc get clusterspiffeids.spire.spiffe.io agents` shows the entry; its `podsSelected` count rises once agent pods run.
-5. **Sign-in switch (CHANGE WINDOW)** ([GUIDE 3](GUIDE.md#3-sign-in-switch-change-window-30-min)) — moves OpenShift sign-in to Keycloak; the API server rolls out for about 20 minutes and built-in OAuth goes off for everyone.
+4. **Sign-in switch (CHANGE WINDOW)** ([GUIDE 3](GUIDE.md#3-sign-in-switch-change-window-30-min)) — moves OpenShift sign-in to Keycloak; the API server rolls out for about 20 minutes and built-in OAuth goes off for everyone.
    Command: the CA ConfigMap and console Secret from the file header first, then `./render.sh 04-openshift-external-oidc.yaml --check && ./render.sh 04-openshift-external-oidc.yaml --apply`
    Check: `oc get co kube-apiserver` shows Progressing=False after the rollout, and `oc whoami` shows the Keycloak user.
-6. **RHOAI dashboard sign-in** ([GUIDE 3](GUIDE.md#3-sign-in-switch-change-window-30-min)) — points the RHOAI dashboard gateway at Keycloak.
+5. **RHOAI dashboard sign-in** ([GUIDE 3](GUIDE.md#3-sign-in-switch-change-window-30-min)) — points the RHOAI dashboard gateway at Keycloak.
    Command: the gateway client Secret from the file header first, then `./render.sh 05-rhoai-gateway-oidc.yaml --check && ./render.sh 05-rhoai-gateway-oidc.yaml --apply`
    Check: `oc get gatewayconfigs.services.platform.opendatahub.io default-gateway -o jsonpath='{.spec.oidc.issuerURL}'` prints the Keycloak issuer.
-7. **MaaS access** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — lets your Keycloak group and the agent service accounts use the model.
+6. **MaaS access** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — lets your Keycloak group and the agent service accounts use the model.
    Command: set `<model>` and `<model-ns>` in the file, then `./render.sh 06-maas-access.yaml --check && ./render.sh 06-maas-access.yaml --apply`
    Check: `oc get maasauthpolicies,maassubscriptions -n models-as-a-service` lists the objects for your model.
-8. **Tempo** ([GUIDE 2](GUIDE.md#2-tracing-no-downtime-20-min)) — the trace store with the `agents` tenant behind a gateway.
+7. **Tempo** ([GUIDE 2](GUIDE.md#2-tracing-no-downtime-20-min)) — the trace store with the `agents` tenant behind a gateway.
    Command: the `tempo-s3` Secret from the file header first, then `./render.sh 07-tempo.yaml --check && ./render.sh 07-tempo.yaml --apply`
    Check: `oc get tempostacks.tempo.grafana.com agents -n $TRACING_NAMESPACE -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'` prints True.
-9. **OpenTelemetry collector** ([GUIDE 2](GUIDE.md#2-tracing-no-downtime-20-min)) — receives OTLP from the agents and OGX and writes to the `agents` tenant.
+8. **OpenTelemetry collector** ([GUIDE 2](GUIDE.md#2-tracing-no-downtime-20-min)) — receives OTLP from the agents and OGX and writes to the `agents` tenant.
    Command: `./render.sh 08-opentelemetry.yaml --check && ./render.sh 08-opentelemetry.yaml --apply`
    Check: `oc get deploy otel-collector -n $TRACING_NAMESPACE -o jsonpath='{.status.readyReplicas}'` prints 1.
-10. **Traces UI** ([GUIDE 2](GUIDE.md#2-tracing-no-downtime-20-min)) — turns on console Observe → Traces for the TempoStack; give readers the `tracing-viewers` group.
+9. **Traces UI** ([GUIDE 2](GUIDE.md#2-tracing-no-downtime-20-min)) — turns on console Observe → Traces for the TempoStack; give readers the `tracing-viewers` group.
     Command: `./render.sh 09-tracing-ui.yaml --check && ./render.sh 09-tracing-ui.yaml --apply`, then `oc adm groups new tracing-viewers <you>` (a Keycloak group of that name, since the switch has run).
     Check: `oc get uiplugins.observability.openshift.io distributed-tracing -o jsonpath='{.status.conditions[?(@.type=="Available")].status}'` prints True.
-11. **OGX server** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — the model server that accepts only Keycloak tokens and traces to the collector; its database Secret, MaaS key and ingress CA come first (commands in GUIDE 4).
+10. **OGX server** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — the model server that accepts only Keycloak tokens and traces to the collector; its database Secret, MaaS key and ingress CA come first (commands in GUIDE 4).
     Command: `./render.sh 10-ogx.yaml --check && ./render.sh 10-ogx.yaml --apply`
     Check: `oc get ogxservers.ogx.io ogx -n $OGX_NAMESPACE` shows the server, with an available replica about a minute later.
-12. **Gateway policy (optional)** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — an Authorino AuthPolicy that accepts a Keycloak user or a SPIRE agent at one of your HTTPRoutes.
+11. **Gateway policy (optional)** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — an Authorino AuthPolicy that accepts a Keycloak user or a SPIRE agent at one of your HTTPRoutes.
     Command: set `<route-to-protect>`, then `./render.sh 11-authpolicy-agent-or-user.yaml --check && ./render.sh 11-authpolicy-agent-or-user.yaml --apply`
     Check: `oc get authpolicies.kuadrant.io agent-or-user -n $AGENT_NAMESPACE` finds the policy.
-13. **Example agents** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — the agent namespace, service accounts and a demo agent wired for SPIFFE, tracing and MaaS.
+12. **Example agents** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — the agent namespace, service accounts and a demo agent wired for SPIFFE, tracing and MaaS.
     Command: `./render.sh 12-example-agent.yaml --check && ./render.sh 12-example-agent.yaml --apply`
     Check: `oc get pods -n $AGENT_NAMESPACE` shows the agent pods Running.
-14. **Service Mesh (optional)** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — OpenShift Service Mesh 3 for agent-to-agent mTLS; read the whole file first, because it can break the cluster's Gateway API.
+13. **Service Mesh (optional)** ([GUIDE 4](GUIDE.md#4-models-ogx-agents-30-min)) — OpenShift Service Mesh 3 for agent-to-agent mTLS; read the whole file first, because it can break the cluster's Gateway API.
     Command: `./render.sh 13-service-mesh.yaml --check && ./render.sh 13-service-mesh.yaml --apply`
     Check: `oc get istiocni default && oc get istio agents-mesh` finds both control plane objects.
-15. **MCP server and gateway** ([GUIDE 8](GUIDE.md#8-mcp-tools-through-the-mcp-gateway)) — installs the MCP gateway objects and registers the MCP server for Red Hat OpenShift on it, so tool calls are authenticated and RBAC-checked.
+14. **MCP server and gateway** ([GUIDE 8](GUIDE.md#8-mcp-tools-through-the-mcp-gateway)) — installs the MCP gateway objects and registers the MCP server for Red Hat OpenShift on it, so tool calls are authenticated and RBAC-checked.
     Command: the Helm install from the file header first, then `./render.sh 14-mcp-gateway.yaml --check && ./render.sh 14-mcp-gateway.yaml --apply`
     Check: `oc get mcpserverregistrations.mcp.kuadrant.io -A` shows every registration with Ready=True.
-16. **Guardrails (optional)** ([GUIDE 8](GUIDE.md#guardrails-on-tool-calls-nemo)) — checks every tool call's arguments and results against NeMo built-in rails at the gateway.
+15. **Guardrails (optional)** ([GUIDE 8](GUIDE.md#guardrails-on-tool-calls-nemo)) — checks every tool call's arguments and results against NeMo built-in rails at the gateway.
     Command: `./render.sh 15-nemo-mcp-guardrails.yaml --check && ./render.sh 15-nemo-mcp-guardrails.yaml --apply`, then the annotation command at the end of the file header.
     Check: `oc get mcpgatewayextensions mcp-gateway -n mcp-gateway` shows Ready after the annotation.
-17. **Dashboards (optional)** ([GUIDE 7](GUIDE.md#dashboards-for-the-demo)) — usage and enforcement dashboards beside the traces; the file's five commented `oc patch` commands go first.
+16. **Dashboards (optional)** ([GUIDE 7](GUIDE.md#dashboards-for-the-demo)) — usage and enforcement dashboards beside the traces; the file's five commented `oc patch` commands go first.
     Command: `./render.sh 16-console-dashboards.yaml --check && ./render.sh 16-console-dashboards.yaml --apply`
     Check: `oc get persesdashboard dashboard-5-agent-gateways-admin -n redhat-ods-monitoring` finds the dashboard.
-18. **Playground (optional)** ([GUIDE 8](GUIDE.md#playground-one-question-two-users)) — registers the MCP gateway in the gen AI playground and gives the second demo user edit on the playground's project.
+17. **Playground (optional)** ([GUIDE 8](GUIDE.md#playground-one-question-two-users)) — registers the MCP gateway in the gen AI playground and gives the second demo user edit on the playground's project.
     Command: the ConfigMap commands from the file header first, then `./render.sh 17-playground-mcp.yaml --check && ./render.sh 17-playground-mcp.yaml --apply`
     Check: `oc get rolebinding playground-second-user-edit -n <playground-namespace>` finds the `edit` binding.
-19. **Verify** ([GUIDE 6](GUIDE.md#6-verify)) — one line per component; fix every failure before the demo.
+18. **Verify** ([GUIDE 6](GUIDE.md#6-verify)) — one line per component; fix every failure before the demo.
     Command: `./verify.sh`
-20. **Rehearse** ([GUIDE 7](GUIDE.md#7-demo-a-fresh-trace-at-any-time)) — pre-flight and the plan of every step, with no pods created.
+19. **Rehearse** ([GUIDE 7](GUIDE.md#7-demo-a-fresh-trace-at-any-time)) — pre-flight and the plan of every step, with no pods created.
     Command: `./demo-run.sh --dry-run`
-21. **Present** ([GUIDE 7](GUIDE.md#7-demo-a-fresh-trace-at-any-time)) — the live run; it waits for Enter between steps (see Run the demo).
+20. **Present** ([GUIDE 7](GUIDE.md#7-demo-a-fresh-trace-at-any-time)) — the live run; it waits for Enter between steps (see Run the demo).
     Command: `./demo-run.sh --pause`
 
 ## Run the demo
