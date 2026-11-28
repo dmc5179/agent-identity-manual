@@ -40,15 +40,16 @@ data:
     rails:
       config:
         sensitive_data_detection:
+          # PERSON is left out on purpose: on a live cluster it flagged pod and namespace names in
+          # an ordinary pod list as person names and blocked the tool result (seen 2026-11-28).
           input:
             entities:
             - EMAIL_ADDRESS
-            - PERSON
             - US_SSN
           output:
             entities:
             - EMAIL_ADDRESS
-            - PERSON
+            - US_SSN
       input:
         flows:
         - detect sensitive data on input
@@ -70,10 +71,9 @@ metadata:
   name: nemo-guardrails
   namespace: mcp-gateway
   annotations:
-    # check: the RHOAI docs' examples set 'true' and call /v1/guardrail/checks with a Bearer
-    # token, and they do not say which value the RHCL gateway integration needs. The gateway calls
-    # NeMo in-cluster with no bearer token, so 'false' is set here. If NeMo refuses the gateway's
-    # checks with 401, try 'true' and re-test.
+    # 'false': the gateway calls NeMo in-cluster with no bearer token. The RHOAI docs' examples set
+    # 'true' for callers that present one. Verified 2026-11-28 (OpenShift 4.22, RHOAI 3.5.2, RHCL 1.5):
+    # with 'false' the gateway's checks pass and block as configured.
     security.opendatahub.io/enable-auth: 'false'
 spec:
   # The config ID "pii" maps to the ConfigMap above; the Secret below lists it in configIDs.
@@ -89,7 +89,7 @@ spec:
 # The Secret the gateway controller reads (RHCL ch. 7): same namespace as the MCPGatewayExtension,
 # label mcp.kuadrant.io/secret "true", type guardrails/external/nemo. No bearer token or CA
 # material goes here.
-#   url: check — the exact Service name and port of the NeMo server (oc get svc -n mcp-gateway
+#   url: the operator creates Service nemo-guardrails on port 80 (to 8000), plain HTTP; verified live.
 #     after the NemoGuardrails CR is Ready); the value below follows the docs' example pattern,
 #     https://nemo-guardrails.mcp-system.svc.cluster.local:8080, rewritten for this namespace.
 #   model: required by the docs, but built-in rails never call a model, so it is a placeholder.
@@ -105,7 +105,7 @@ metadata:
   namespace: mcp-gateway
 stringData:
   config.yaml: |
-    url: https://nemo-guardrails.mcp-gateway.svc.cluster.local:8080
+    url: http://nemo-guardrails.mcp-gateway.svc.cluster.local   # Service nemo-guardrails, port 80 to 8000, plain HTTP
     configIDs:
     - pii
     model: unused-built-in-rails-only

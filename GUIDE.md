@@ -411,13 +411,16 @@ MCPServerRegistration to the versions it really serves.
 call's arguments before the gateway proxies the call, and every tool result before it returns to
 the client. Arguments that trip a rail come back as HTTP 403 "blocked by guardrails"; a result
 that trips a rail returns as an MCP error result. The file uses the built-in rails only (email
-addresses, person names, US Social Security numbers), so no judge LLM is involved. The integration
+addresses and US Social Security numbers; person names are left out because they flagged pod and
+namespace names in an ordinary pod list), so no judge LLM is involved. The integration
 is Technology Preview on RHOAI 3.5. Apply the file, wait for the NeMo server to run in
 `mcp-gateway`, then set the annotation from the file header. The demo can show the checks in one
 trace: with `demo-trace.sh --mcp-args-guarded '{"namespace":"$NS","note":"contact alice@example.com"}'`
 the last agent repeats its tool call, the normal call passes, and the guarded call, whose arguments
-contain an email address, is refused with 403. A tool result that contains a person's name comes
-back as an error result the same way. To remove the checks, delete the annotation on the
+contain an email address, is refused with 403. A tool result that contains an email address comes
+back as an error result the same way. NeMo's first check after it starts takes about 10 seconds;
+send one tool call before presenting (later calls add well under a second). Verified on RHOAI
+3.5.2 with Connectivity Link 1.5 (2026-11-28). To remove the checks, delete the annotation on the
 MCPGatewayExtension first (the file header gives the order).
 
 ### Playground: one question, two users
