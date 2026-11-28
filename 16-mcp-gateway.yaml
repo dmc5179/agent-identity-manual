@@ -1,0 +1,415 @@
+# Step 16: the MCP gateway (GUIDE 8) as plain manifests, for a cluster that does not use AutoShift.
+# Apply before 15: the playground registers this gateway by its in-cluster address.
+# What it creates: the Gateway with its public and internal listeners, the MCPGatewayExtension, the
+# gateway HTTPRoute, a Kubernetes-token AuthPolicy, the Authorino TLS EnvoyFilter, the public Route,
+# a ReferenceGrant and two NetworkPolicies, plus registrations for two MCP servers: the MCP server
+# for Red Hat OpenShift, and the Red Hat Offline Knowledge Portal MCP server (the two rhokp blocks,
+# OPTIONAL).
+# Prerequisites:
+#   - Connectivity Link 1.5 with the MCP gateway operator, and a Kuadrant CR.
+#   - The MCP server for Red Hat OpenShift installed by Helm first (command below), so its Service
+#     exists when its registration applies.
+#   - Namespaces: openshift-ingress exists on every cluster and openshift-mcp-server comes from the
+#     Helm chart; create mcp-gateway (and rhokp, only for the optional docs server) first.
+# Apply in the order written (gateway, grant, extension, the two NetworkPolicies, the EnvoyFilter,
+# the AuthPolicy, the Route, the gateway HTTPRoute, then each server's HTTPRoute and registration):
+#   ./render.sh 16-mcp-gateway.yaml --check   then   ./render.sh 16-mcp-gateway.yaml --apply
+# Traps (GUIDE 8):
+#   - Both listeners use port 8080: the controller matches registrations to the MCPGatewayExtension
+#     by listener port, and a mismatch leaves every registration NotReady.
+#   - The public listener has no hostname, so the extension needs spec.publicHost.
+#   - The EnvoyFilter is needed whenever RHOAI is installed: RHOAI turns on TLS for Authorino's
+#     gRPC port but patches only its own gateway, and without the filter every authenticated
+#     request through this gateway returns 500.
+#   - The docs-server registration sets supportedProtocolVersions because that server answers the
+#     MCP handshake in only one protocol version; without it the gateway hides the server from
+#     clients on the other version.
+# The MCP server for Red Hat OpenShift is Technology Preview (OCP 4.22 "AI applications", Helm
+# chart redhat-openshift-mcp-server 0.3.0). Install it read-only, denying Secrets, with no Ingress
+# (the gateway Route below exposes it). The values also bind the release's ServiceAccount to the
+# built-in view ClusterRole:
+#   cat > openshift-mcp-server-values.yaml <<'EOF'
+#   config:
+#     read_only: true
+#     deniedResources:
+#     - group: ""
+#       kind: Secret
+#       version: v1
+#   ingress:
+#     enabled: false
+#   openshift: true
+#   rbac:
+#     extraClusterRoleBindings:
+#     - name: use-view-role
+#       roleRef:
+#         external: true
+#         name: view
+#   EOF
+#   helm repo add openshift-helm-charts https://charts.openshift.io/    # once
+#   helm upgrade -i -n openshift-mcp-server --create-namespace openshift-mcp-server \
+#     openshift-helm-charts/redhat-openshift-mcp-server --version 0.3.0 \
+#     --values openshift-mcp-server-values.yaml
+#   check: every tool runs with the caller's own token, so OpenShift RBAC decides what each caller
+#   may do (GUIDE 8); the view ClusterRoleBinding is the release ServiceAccount's own role.
+# Docs: RHCL 1.5, Register MCP servers and create policies (mcp.kuadrant.io/v1); OCP 4.22
+#   AI applications, MCP server (chart and values).
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  labels:
+    istio.io/rev: openshift-gateway
+  name: mcp-gateway
+  namespace: openshift-ingress
+spec:
+  gatewayClassName: openshift-default
+  listeners:
+  - allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values:
+            - mcp-gateway
+    name: mcp
+    port: 8080
+    protocol: HTTP
+  - allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchExpressions:
+          - key: kubernetes.io/metadata.name
+            operator: In
+            values:
+            - mcp-gateway
+            - rhokp
+            - openshift-mcp-server
+    hostname: '*.mcp.local'
+    name: mcp-internal
+    port: 8080
+    protocol: HTTP
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: mcp-mcp-gateway
+  namespace: openshift-ingress
+spec:
+  from:
+  - group: mcp.kuadrant.io
+    kind: MCPGatewayExtension
+    namespace: mcp-gateway
+  to:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+---
+apiVersion: mcp.kuadrant.io/v1
+kind: MCPGatewayExtension
+metadata:
+  name: mcp-gateway
+  namespace: mcp-gateway
+spec:
+  backendPingIntervalSeconds: 60
+  httpRouteManagement: Enabled
+  logLevel: info
+  maxBodyBytes: 5242880
+  privateHost: http://mcp-gateway-openshift-default.openshift-ingress.svc.cluster.local:8080
+  publicHost: mcp.${APPS_DOMAIN}      # required: the mcp listener has no hostname
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    namespace: openshift-ingress
+    sectionName: mcp
+  urlElicitation: Disabled
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    ingress.openshift.io/owning-gateway: mcp-gateway
+  name: mcp-gateway-allow
+  namespace: openshift-ingress
+spec:
+  egress:
+  - {}
+  ingress:
+  - {}
+  podSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: mcp-gateway
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+  name: mcp-gateway
+  namespace: mcp-gateway
+spec:
+  egress:
+  - {}
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: openshift-ingress
+    ports:
+    - port: 8080
+      protocol: TCP
+    - port: 50051
+      protocol: TCP
+  - ports:
+    - port: 9090
+      protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/managed-by: mcp-gateway-controller
+      app.kubernetes.io/name: mcp-gateway
+  policyTypes:
+  - Ingress
+  - Egress
+---
+apiVersion: networking.istio.io/v1alpha3
+kind: EnvoyFilter
+metadata:
+  name: mcp-gateway-authn-ssl
+  namespace: openshift-ingress
+spec:
+  configPatches:
+  - applyTo: CLUSTER
+    match:
+      cluster:
+        service: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+    patch:
+      operation: ADD
+      value:
+        connect_timeout: 1s
+        http2_protocol_options: {}
+        lb_policy: ROUND_ROBIN
+        load_assignment:
+          cluster_name: kuadrant-auth-service
+          endpoints:
+          - lb_endpoints:
+            - endpoint:
+                address:
+                  socket_address:
+                    address: authorino-authorino-authorization.kuadrant-system.svc.cluster.local
+                    port_value: 50051
+        name: kuadrant-auth-service
+        transport_socket:
+          name: envoy.transport_sockets.tls
+          typed_config:
+            '@type': type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+            common_tls_context:
+              validation_context:
+                trusted_ca:
+                  filename: /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        type: STRICT_DNS
+  priority: -1
+  targetRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+---
+apiVersion: kuadrant.io/v1
+kind: AuthPolicy
+metadata:
+  name: mcp-gateway-mcp
+  namespace: openshift-ingress
+spec:
+  rules:
+    authentication:
+      kubernetes:
+        kubernetesTokenReview:
+          audiences:
+          - https://kubernetes.default.svc
+        metrics: false
+        priority: 0
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    sectionName: mcp
+  when:
+  - predicate: '!request.path.startsWith("/.well-known/oauth-protected-resource")'
+---
+apiVersion: route.openshift.io/v1
+kind: Route
+metadata:
+  name: mcp-gateway
+  namespace: openshift-ingress
+spec:
+  host: mcp.${APPS_DOMAIN}
+  port:
+    targetPort: 8080
+  tls:
+    insecureEdgeTerminationPolicy: Redirect
+    termination: edge
+  to:
+    kind: Service
+    name: mcp-gateway-openshift-default
+    weight: 100
+  wildcardPolicy: None
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  labels:
+    app.kubernetes.io/name: mcp-gateway
+  name: mcp-gateway-route
+  namespace: mcp-gateway
+spec:
+  hostnames:
+  - mcp.${APPS_DOMAIN}
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    namespace: openshift-ingress
+    sectionName: mcp
+  rules:
+  - backendRefs:
+    - group: ''
+      kind: Service
+      name: mcp-gateway
+      port: 8080
+      weight: 1
+    filters:
+    - requestHeaderModifier:
+        remove:
+        - mcp-init-host
+        - router-key
+      type: RequestHeaderModifier
+    matches:
+    - path:
+        type: PathPrefix
+        value: /mcp
+    name: mcp
+  - backendRefs:
+    - group: ''
+      kind: Service
+      name: mcp-gateway
+      port: 8080
+      weight: 1
+    matches:
+    - path:
+        type: PathPrefix
+        value: /.well-known/oauth-protected-resource
+    name: well-known
+  - backendRefs:
+    - group: ''
+      kind: Service
+      name: mcp-gateway
+      port: 8080
+      weight: 1
+    matches:
+    - path:
+        type: PathPrefix
+        value: /status
+    name: status
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: openshift-mcp-mcp
+  namespace: openshift-mcp-server
+spec:
+  hostnames:
+  - openshift-mcp-server-openshift-mcp.mcp.local
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    namespace: openshift-ingress
+    sectionName: mcp-internal
+  rules:
+  - backendRefs:
+    - group: ''
+      kind: Service
+      name: openshift-mcp-server-redhat-openshift-mcp-server
+      port: 8080
+      weight: 1
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+---
+apiVersion: mcp.kuadrant.io/v1
+kind: MCPServerRegistration
+metadata:
+  name: openshift-mcp
+  namespace: openshift-mcp-server
+spec:
+  category:
+  - platform
+  hint: Read-only OpenShift cluster tools
+  path: /mcp
+  prefix: openshift_
+  state: Enabled
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: openshift-mcp-mcp
+    namespace: openshift-mcp-server
+  userSpecificList: Disabled
+---
+# OPTIONAL: the Red Hat Offline Knowledge Portal MCP server (rhokp). Without it installed, skip
+# these last two objects; the rhokp entry in the mcp-internal listener's allowedRoutes is harmless.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: rhokp-docs-mcp
+  namespace: rhokp
+spec:
+  hostnames:
+  - rhokp-rhokp-docs.mcp.local
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: mcp-gateway
+    namespace: openshift-ingress
+    sectionName: mcp-internal
+  rules:
+  - backendRefs:
+    - group: ''
+      kind: Service
+      name: rhokp-mcp
+      port: 8000
+      weight: 1
+    matches:
+    - path:
+        type: PathPrefix
+        value: /
+---
+# OPTIONAL: registers the docs server on its HTTPRoute above. supportedProtocolVersions is
+# required: the server answers the MCP handshake in only one protocol version, so the registration
+# lists the versions it really serves (GUIDE 8).
+apiVersion: mcp.kuadrant.io/v1
+kind: MCPServerRegistration
+metadata:
+  name: rhokp-docs
+  namespace: rhokp
+spec:
+  category:
+  - knowledge
+  hint: Search Red Hat documentation, solutions, CVEs and errata (offline)
+  path: /mcp
+  prefix: rhokp_
+  state: Enabled
+  supportedProtocolVersions:
+  - '2025-11-25'
+  - '2026-07-28'
+  targetRef:
+    group: gateway.networking.k8s.io
+    kind: HTTPRoute
+    name: rhokp-docs-mcp
+    namespace: rhokp
+  userSpecificList: Disabled

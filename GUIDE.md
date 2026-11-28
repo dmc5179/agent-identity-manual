@@ -371,7 +371,11 @@ claims; no token is printed).
 
 Red Hat Connectivity Link 1.5 ships the MCP gateway: agents call MCP servers through the cluster
 ingress instead of reaching each server directly, and every call is authenticated with the identity
-work in this guide.
+work in this guide. `16-mcp-gateway.yaml` holds tested manifests for all of this as plain objects
+(no AutoShift), taken from a working lab cluster on OpenShift 4.22, Connectivity Link 1.5 and RHOAI
+3.5.2. Apply it with `./render.sh 16-mcp-gateway.yaml --check`, then `./render.sh 16-mcp-gateway.yaml
+--apply`; the MCP server for Red Hat OpenShift installs by Helm first, with the command in that
+file's header.
 
 Register each server with an HTTPRoute plus an MCPServerRegistration, following the Connectivity
 Link 1.5 guide "Register MCP servers and create policies". Two details that guide does not

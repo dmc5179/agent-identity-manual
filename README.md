@@ -53,6 +53,7 @@ issues that affect it.
 | 13 | `13-service-mesh.yaml` (optional) | see the file: read before applying | can break Gateway API |
 | 14 | `14-console-dashboards.yaml` (optional) | 9 (COO), RHOAI MaaS | no |
 | 15 | `15-playground-mcp.yaml` (optional) | 8 (MCP gateway); a tool-calling model and a playground in one project | no |
+| 16 | `16-mcp-gateway.yaml` | Connectivity Link 1.5 (MCP gateway operator), a Kuadrant CR; the MCP server for Red Hat OpenShift installed by Helm; apply before 15 | no |
 
 ZTWIM first, then SPIRE, as SPIRE reads the trust domain and cluster name from the ZTWIM resource.
 If you plan to use SPIRE as the Service Mesh CA (13), set `CREATE_ONLY_MODE=true` on the ZTWIM

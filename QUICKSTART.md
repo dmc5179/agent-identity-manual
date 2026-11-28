@@ -39,7 +39,9 @@ Work through the GUIDE sections in this order, checking each file before applyin
 3. [2. Tracing](GUIDE.md#2-tracing-no-downtime-20-min) — 20 min, no downtime: Tempo, the collector, the console Traces UI, the `tracing-viewers` group.
 4. [3. Sign-in switch](GUIDE.md#3-sign-in-switch-change-window-30-min) — 30 min change window: external OIDC; the API server rolls out for about 20 minutes.
 5. [4. Models, OGX, agents](GUIDE.md#4-models-ogx-agents-30-min) — 30 min: MaaS access, the OGX database and OGXServer, the example agents.
-6. [8. MCP tools through the MCP gateway](GUIDE.md#8-mcp-tools-through-the-mcp-gateway): the MCP server and the gateway RBAC that the tool and contrast steps use.
+6. [8. MCP tools through the MCP gateway](GUIDE.md#8-mcp-tools-through-the-mcp-gateway): the MCP
+   gateway (`16-mcp-gateway.yaml`, applied before `15-playground-mcp.yaml`), the MCP server and the
+   gateway RBAC that the tool and contrast steps use.
 7. [6. Verify](GUIDE.md#6-verify): `./verify.sh` reports one line per component; fix every failure before the demo.
 
 ## Run the demo
