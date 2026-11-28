@@ -388,14 +388,20 @@ Apply `15-playground-mcp.yaml` and the commands in its header: the gateway as a 
 in-cluster HTTP address, because the dashboard does not trust the route's ingress certificate) and
 edit on the playground's project for the second user. Then, in the RHOAI dashboard, open the playground and ask one question as two users:
 
-1. Mint one token per user and copy it, for example `./ogx-token.sh alice | xclip -selection clipboard`
+1. Gen AI studio, **AI asset endpoints** (the playground's project): select **Add to playground** for
+   the model and for the `mcp-gateway` MCP server, and wait for "Adding to playground" to finish. Ticking
+   the server in the MCP tab alone does not attach its tools to questions: the model then answers from
+   memory ("run oc get pods ..."). Re-adding also repairs a playground left on an old model or key.
+2. Mint one token per user and copy it, for example `./ogx-token.sh alice | xclip -selection clipboard`
    (or `wl-copy` on Wayland); the gateway accepts these tokens. Tokens last minutes, and the playground keeps one only for the browser session.
-2. In the Configure panel's MCP tab, tick `mcp-gateway`, open the auth icon, paste alice's token,
+3. In the Configure panel's MCP tab, tick `mcp-gateway`, open the auth icon, paste alice's token,
    and select **Authorize**. The wrench icon lists the server's tools.
-3. Ask: List the pods in the namespace `<ns>`, a namespace alice can read and bob has no role in
-   (not the playground's project, where edit includes listing pods). Alice gets the pod list.
-4. Select **Authorize** again with bob's token and ask the same question: the answer reports the tool
-   call as forbidden. The MCP server runs each tool with the caller's own token; OpenShift RBAC decided.
+4. Ask: Use the openshift_pods_list_in_namespace tool to list the pods in the namespace `<ns>` (a
+   namespace alice can read and bob has no role in; naming the tool helps a small model). Alice gets
+   the pod list.
+5. Select **Authorize** again with bob's token and ask the same question: the answer reports that bob
+   lacks permission to list pods there. The MCP server runs each tool with the caller's own token;
+   OpenShift RBAC decided. Verified on RHOAI 3.5.2 (2026-11-27).
 
 Two likely failures: "authorization failed" with a valid token means the entry points at the public
 route (the dashboard rejects its certificate; use the in-cluster address), and a server missing from

@@ -49,7 +49,12 @@
 #    spec.tls.trust.caCertificates); the dashboard back end only trusts RHOAI's CA bundle. The
 #    in-cluster address above avoids both.
 #
-# 3. The second user needs the playground's project to open the playground at all; edit is enough.
+# 3. Add the model and the gateway to the playground: Gen AI studio, AI asset endpoints (the
+#    playground's project), Add to playground for the model and for the mcp-gateway MCP server; wait
+#    for "Adding to playground" to finish. Without this the MCP tab can authorize and list the tools,
+#    but questions go to the model without them (verified on RHOAI 3.5.2, 2026-11-27).
+#
+# 4. The second user needs the playground's project to open the playground at all; edit is enough.
 #    edit grants nothing outside that project, which is the point: the demo question targets a
 #    namespace bob has no role in, so bob's call is refused and alice's is not:
 apiVersion: rbac.authorization.k8s.io/v1
