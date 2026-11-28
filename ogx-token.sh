@@ -56,7 +56,8 @@ if [ -t 0 ]; then
     read -rs password || { printf '\n' >&2; echo "Error: no password entered" >&2; exit 2; }
     printf '\n' >&2
 else
-    read -r password || { echo "Error: stdin gave no password: expected one line" >&2; exit 2; }
+    # read returns non-zero at end of input without a newline, even when it read the password
+    read -r password || [ -n "$password" ] || { echo "Error: stdin gave no password: expected one line" >&2; exit 2; }
 fi
 [ -n "$password" ] || { echo "Error: the password is empty" >&2; exit 2; }
 

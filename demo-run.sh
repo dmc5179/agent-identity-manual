@@ -236,9 +236,15 @@ step3() {
     echo "The OGX hop plan failed." >&2
     return 1
   fi
-  printf 'Minting the OGX token for %s (enter the Keycloak password when prompted).\n' "$DEMO_USER"
   local tok
-  tok="$("$RUN_OGX_TOKEN" "$DEMO_USER")" || { echo "ogx-token.sh did not produce a token." >&2; return 1; }
+  if [ -n "${DEMO_OGX_TOKEN:-}" ]; then
+    # Minted beforehand (for example ./ogx-token.sh alice just before presenting): use it as is.
+    echo "Using the OGX token already in DEMO_OGX_TOKEN."
+    tok="$DEMO_OGX_TOKEN"
+  else
+    printf 'Minting the OGX token for %s (enter the Keycloak password when prompted).\n' "$DEMO_USER"
+    tok="$("$RUN_OGX_TOKEN" "$DEMO_USER")" || { echo "ogx-token.sh did not produce a token." >&2; return 1; }
+  fi
   if [ -z "$tok" ]; then
     echo "ogx-token.sh returned an empty token." >&2
     return 1
