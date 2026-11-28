@@ -35,7 +35,7 @@ issues that affect it.
 
 ## Order
 
-The numbered files are in [`manifests/`](manifests/), in apply order; the scripts and docs stay at the top level. `./render.sh manifests/NN-name.yaml` (or just `NN-name.yaml`) renders one.
+The numbered files are in [`manifests/`](manifests/), in apply order; the scripts and docs stay at the top level. `./render.sh manifests/NN-name.yaml` (or just `NN-name.yaml`) renders one. `yamllint manifests/` checks them with the repository's `.yamllint` (the defaults without line length).
 
 | Step | File | Depends on | Disruptive? |
 |---|---|---|---|

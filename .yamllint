@@ -1,0 +1,6 @@
+# yamllint configuration for the manifests: yamllint's defaults, without the line-length rule
+# (header comments carry long command lines and URLs). Run: yamllint manifests/
+---
+extends: default
+rules:
+  line-length: disable
